@@ -10,7 +10,7 @@ import {
   ClipboardEdit,
   ScrollText,
   FileText,
-  Truck2,
+  Truck,
   Users2,
   DoorOpen,
   Fuel,
@@ -69,7 +69,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Fleet & Logistics",
     items: [
-      { label: "Vehicles", href: "/vehicles", icon: Truck2, permission: "VEHICLE_VIEW" },
+      { label: "Vehicles", href: "/vehicles", icon: Truck, permission: "VEHICLE_VIEW" },
       { label: "Drivers", href: "/drivers", icon: Users2, permission: "DRIVER_VIEW" },
       { label: "Gate Entry / Exit", href: "/gate", icon: DoorOpen, permission: "GATE_ENTRY_VIEW" },
       { label: "Fuel Management", href: "/fuel", icon: Fuel, permission: "FUEL_VIEW" },

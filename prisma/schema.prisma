@@ -339,6 +339,8 @@ model StockInwardItem {
   inward       StockInward @relation(fields: [inwardId], references: [id], onDelete: Cascade)
   itemId       String
   item         Item     @relation(fields: [itemId], references: [id])
+  poItemId     String?
+  poItem       PurchaseOrderItem? @relation(fields: [poItemId], references: [id])
   quantity     Decimal  @db.Decimal(14, 3)
   unit         String
   batchNumber  String?
@@ -350,6 +352,7 @@ model StockInwardItem {
 
   @@index([inwardId])
   @@index([itemId])
+  @@index([poItemId])
 }
 
 enum OutwardStatus {
@@ -538,6 +541,8 @@ model PurchaseOrderItem {
   rate             Decimal       @db.Decimal(14, 2)
   taxPercent       Decimal?      @db.Decimal(5, 2)
   total            Decimal       @db.Decimal(14, 2)
+
+  inwardItems StockInwardItem[]
 
   @@index([poId])
   @@index([itemId])

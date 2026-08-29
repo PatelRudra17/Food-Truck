@@ -3,11 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import type { NavGroup } from "@/lib/nav-config";
+import { NAV_GROUPS } from "@/lib/nav-config";
 import { Boxes } from "lucide-react";
 
-export function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavigate?: () => void }) {
+export function SidebarNav({
+  permissions,
+  onNavigate,
+}: {
+  permissions: string[];
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
+  const groups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !item.permission || permissions.includes(item.permission)),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <div className="flex h-full flex-col">

@@ -8,7 +8,7 @@ const PUBLIC_PATHS = ["/login"];
  * against the database — that authoritative check happens in the (app) route
  * group's server layout via requireUser(), which every protected page inherits.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const isPublic =

@@ -5,10 +5,9 @@ import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
-import type { NavGroup } from "@/lib/nav-config";
 import { VisuallyHidden } from "radix-ui";
 
-export function MobileNav({ groups }: { groups: NavGroup[] }) {
+export function MobileNav({ permissions }: { permissions: string[] }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -22,7 +21,7 @@ export function MobileNav({ groups }: { groups: NavGroup[] }) {
         <VisuallyHidden.Root>
           <SheetTitle>Navigation</SheetTitle>
         </VisuallyHidden.Root>
-        <SidebarNav groups={groups} onNavigate={() => setOpen(false)} />
+        <SidebarNav permissions={permissions} onNavigate={() => setOpen(false)} />
       </SheetContent>
     </Sheet>
   );

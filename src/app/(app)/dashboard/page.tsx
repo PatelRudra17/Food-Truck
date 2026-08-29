@@ -7,7 +7,7 @@ import {
   ArrowUpFromLine,
   AlertTriangle,
   XCircle,
-  Truck2,
+  Truck,
   LogIn,
   LogOut,
   Users2,
@@ -58,7 +58,7 @@ export default async function DashboardPage() {
         />
         <KpiCard label="Today's Inward" value={kpis.todaysInward} icon={ArrowDownToLine} href="/stock/inward" />
         <KpiCard label="Today's Outward" value={kpis.todaysOutward} icon={ArrowUpFromLine} href="/stock/outward" />
-        <KpiCard label="Total Vehicles" value={kpis.totalVehicles} icon={Truck2} href="/vehicles" />
+        <KpiCard label="Total Vehicles" value={kpis.totalVehicles} icon={Truck} href="/vehicles" />
         <KpiCard label="Vehicles Inside" value={kpis.vehiclesInside} icon={LogIn} href="/gate" />
         <KpiCard label="Vehicles Outside" value={kpis.vehiclesOutside} icon={LogOut} href="/gate" />
         <KpiCard label="Active Drivers" value={kpis.activeDrivers} icon={Users2} href="/drivers" />
