@@ -21,6 +21,7 @@ export type AuditAction =
   | "USER_DEACTIVATE"
   | "SETTINGS_CHANGE"
   | "MAINTENANCE_OVERRIDE"
+  | "DISPATCH_OVERRIDE"
   | "VOID";
 
 /**

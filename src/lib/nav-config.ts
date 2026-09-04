@@ -24,6 +24,24 @@ import {
   Settings,
   FolderOpen,
   ScanLine,
+  ClipboardList,
+  Boxes,
+  PackageOpen,
+  SlidersHorizontal,
+  Trash2,
+  Building2,
+  Route as RouteIcon,
+  Send,
+  Undo2,
+  Sparkles,
+  CalendarClock,
+  Repeat,
+  ListChecks,
+  Users,
+  HardHat,
+  CalendarCheck,
+  Wallet,
+  CheckSquare,
 } from "lucide-react";
 import type { PermissionCode } from "@/lib/auth/permissions";
 
@@ -56,14 +74,32 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Stock Adjustment", href: "/stock/adjustment", icon: ClipboardEdit, permission: "STOCK_ADJUSTMENT_VIEW" },
       { label: "Inventory Ledger", href: "/inventory-ledger", icon: ScrollText, permission: "INVENTORY_LEDGER_VIEW" },
       { label: "Storage Temperature", href: "/storage-temperature", icon: Thermometer, permission: "STORAGE_TEMPERATURE_VIEW" },
+      { label: "Wastage", href: "/wastage", icon: Trash2, permission: "WASTAGE_VIEW" },
       { label: "Scan Item", href: "/scan", icon: ScanLine, permission: "ITEM_VIEW" },
     ],
   },
   {
     label: "Procurement",
     items: [
+      { label: "Procurement", href: "/procurement", icon: ClipboardList, permission: "PROCUREMENT_VIEW" },
+      { label: "Procurement Batches", href: "/procurement/batches", icon: Boxes, permission: "PROCUREMENT_VIEW" },
+      { label: "Unloading", href: "/procurement/unloading", icon: PackageOpen, permission: "PROCUREMENT_VIEW" },
+      { label: "Sorting / Grading", href: "/procurement/sorting", icon: SlidersHorizontal, permission: "SORTING_VIEW" },
       { label: "Purchase Orders", href: "/purchase-orders", icon: FileText, permission: "PURCHASE_ORDER_VIEW" },
-      { label: "Suppliers", href: "/suppliers", icon: Users2, permission: "SUPPLIER_VIEW" },
+      { label: "Vendors", href: "/suppliers", icon: Users2, permission: "SUPPLIER_VIEW" },
+    ],
+  },
+  {
+    label: "Sales",
+    items: [{ label: "Customers", href: "/customers", icon: Building2, permission: "CUSTOMER_VIEW" }],
+  },
+  {
+    label: "Dispatch & Crates",
+    items: [
+      { label: "Dispatch", href: "/dispatch", icon: Send, permission: "TRIP_VIEW" },
+      { label: "Routes", href: "/routes", icon: RouteIcon, permission: "ROUTE_VIEW" },
+      { label: "Crates", href: "/crates", icon: Boxes, permission: "CRATE_VIEW" },
+      { label: "Crate Returns", href: "/crates/returns", icon: Undo2, permission: "CRATE_VIEW" },
     ],
   },
   {
@@ -74,6 +110,24 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Gate Entry / Exit", href: "/gate", icon: DoorOpen, permission: "GATE_ENTRY_VIEW" },
       { label: "Fuel Management", href: "/fuel", icon: Fuel, permission: "FUEL_VIEW" },
       { label: "Vehicle Maintenance", href: "/maintenance", icon: Wrench, permission: "MAINTENANCE_VIEW" },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { label: "Cleaning", href: "/operations/cleaning", icon: Sparkles, permission: "OPERATIONS_VIEW" },
+      { label: "Shifts", href: "/operations/shifts", icon: CalendarClock, permission: "OPERATIONS_VIEW" },
+      { label: "Shift Handover", href: "/operations/shifts/handover", icon: Repeat, permission: "OPERATIONS_VIEW" },
+      { label: "Next-Day Preparation", href: "/operations/next-day", icon: ListChecks, permission: "OPERATIONS_VIEW" },
+    ],
+  },
+  {
+    label: "Workforce",
+    items: [
+      { label: "Employees", href: "/employees", icon: Users, permission: "EMPLOYEE_VIEW" },
+      { label: "Labour", href: "/labour", icon: HardHat, permission: "LABOUR_VIEW" },
+      { label: "Attendance", href: "/attendance", icon: CalendarCheck, permission: "ATTENDANCE_VIEW" },
+      { label: "Payroll", href: "/payroll", icon: Wallet, permission: "PAYROLL_VIEW" },
     ],
   },
   {
@@ -90,6 +144,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Users", href: "/settings/users", icon: UserCog, permission: "MANAGE_USERS" },
       { label: "Roles & Permissions", href: "/settings/roles", icon: ShieldCheck, permission: "MANAGE_ROLES" },
       { label: "Audit Log", href: "/settings/audit-log", icon: History, permission: "VIEW_AUDIT_LOG" },
+      { label: "Approval Center", href: "/settings/approvals", icon: CheckSquare, permission: "MANAGE_SETTINGS" },
       { label: "System Settings", href: "/settings", icon: Settings, permission: "MANAGE_SETTINGS" },
     ],
   },

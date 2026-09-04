@@ -13,11 +13,16 @@ export function MobileNav({ permissions }: { permissions: string[] }) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="lg:hidden">
+        <Button
+          variant="ghost"
+          size="icon-lg"
+          className="touch-manipulation lg:hidden"
+          aria-label="Open navigation menu"
+        >
           <Menu className="h-5 w-5" />
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-72 p-0">
+      <SheetContent side="left" className="w-[min(18rem,85vw)] p-0">
         <VisuallyHidden.Root>
           <SheetTitle>Navigation</SheetTitle>
         </VisuallyHidden.Root>

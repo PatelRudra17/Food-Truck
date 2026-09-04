@@ -13,7 +13,20 @@ export async function globalSearchAction(query: string): Promise<SearchResultGro
   const q = query.trim();
   if (q.length < 2) return [];
 
-  const [items, suppliers, vehicles, drivers, inwards, outwards, pos] = await Promise.all([
+  const [
+    items,
+    suppliers,
+    vehicles,
+    drivers,
+    inwards,
+    outwards,
+    pos,
+    customers,
+    procurementBatches,
+    crates,
+    employees,
+    labourers,
+  ] = await Promise.all([
     prisma.item.findMany({
       where: {
         OR: [
@@ -57,6 +70,42 @@ export async function globalSearchAction(query: string): Promise<SearchResultGro
     }),
     prisma.purchaseOrder.findMany({
       where: { poNumber: { contains: q, mode: "insensitive" } },
+      take: 5,
+    }),
+    prisma.customer.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { customerCode: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      take: 5,
+    }),
+    prisma.procurementBatch.findMany({
+      where: { batchNumber: { contains: q, mode: "insensitive" } },
+      include: { item: true },
+      take: 5,
+    }),
+    prisma.crate.findMany({
+      where: { crateCode: { contains: q, mode: "insensitive" } },
+      take: 5,
+    }),
+    prisma.employee.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { employeeCode: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      take: 5,
+    }),
+    prisma.labour.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { labourCode: { contains: q, mode: "insensitive" } },
+        ],
+      },
       take: 5,
     }),
   ]);
@@ -123,6 +172,51 @@ export async function globalSearchAction(query: string): Promise<SearchResultGro
         title: p.poNumber,
         subtitle: p.status,
         href: `/purchase-orders/${p.id}`,
+      })),
+    },
+    {
+      label: "Customers",
+      items: customers.map((c) => ({
+        id: c.id,
+        title: c.name,
+        subtitle: c.customerCode,
+        href: `/customers/${c.id}`,
+      })),
+    },
+    {
+      label: "Procurement Batches",
+      items: procurementBatches.map((b) => ({
+        id: b.id,
+        title: b.batchNumber,
+        subtitle: `${b.item.name} · ${b.status}`,
+        href: `/procurement/batches/${b.id}`,
+      })),
+    },
+    {
+      label: "Crates",
+      items: crates.map((c) => ({
+        id: c.id,
+        title: c.crateCode,
+        subtitle: c.status,
+        href: `/crates/${c.id}`,
+      })),
+    },
+    {
+      label: "Employees",
+      items: employees.map((e) => ({
+        id: e.id,
+        title: e.name,
+        subtitle: e.employeeCode,
+        href: `/employees/${e.id}`,
+      })),
+    },
+    {
+      label: "Labour",
+      items: labourers.map((l) => ({
+        id: l.id,
+        title: l.name,
+        subtitle: l.labourCode,
+        href: `/labour/${l.id}`,
       })),
     },
   ];

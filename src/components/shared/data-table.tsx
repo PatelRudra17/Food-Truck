@@ -1,11 +1,11 @@
 "use client";
 
+import { flexRender, type RowData } from "@tanstack/react-table";
 import {
-  type ColumnDef,
-  flexRender,
+  type LegacyColumnDef as ColumnDef,
   getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
+  useLegacyTable,
+} from "@tanstack/react-table/legacy";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 import {
@@ -35,7 +35,7 @@ export type PaginationMeta = {
  * and passes the resulting rows + pagination meta down to this client component,
  * which only handles rendering and page/size navigation via URL search params.
  */
-export function DataTable<TData, TValue>({
+export function DataTable<TData extends RowData>({
   columns,
   data,
   pagination,
@@ -44,7 +44,7 @@ export function DataTable<TData, TValue>({
   emptyDescription,
   onRowClick,
 }: {
-  columns: ColumnDef<TData, TValue>[];
+  columns: ColumnDef<TData>[];
   data: TData[];
   pagination?: PaginationMeta;
   isLoading?: boolean;
@@ -56,7 +56,7 @@ export function DataTable<TData, TValue>({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  const table = useReactTable({
+  const table = useLegacyTable<TData>({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),

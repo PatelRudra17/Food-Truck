@@ -15,46 +15,62 @@ datasource db {
 // ==================================================
 
 model User {
-  id            String    @id @default(cuid())
-  employeeId    String?   @unique
-  name          String
-  email         String    @unique
-  passwordHash  String
-  roleId        String
-  role          Role      @relation(fields: [roleId], references: [id])
-  isActive      Boolean   @default(true)
-  isDemoUser    Boolean   @default(false)
-  mfaEnabled    Boolean   @default(false)
-  mfaSecret     String?
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String    @id @default(cuid())
+  employeeId   String?   @unique
+  name         String
+  email        String    @unique
+  passwordHash String
+  roleId       String
+  role         Role      @relation(fields: [roleId], references: [id])
+  isActive     Boolean   @default(true)
+  isDemoUser   Boolean   @default(false)
+  mfaEnabled   Boolean   @default(false)
+  mfaSecret    String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   sessions            Session[]
   auditLogs           AuditLog[]
   notifications       Notification[]
-  createdInwards      StockInward[]      @relation("InwardReceivedBy")
-  requestedOutwards   StockOutward[]     @relation("OutwardRequestedBy")
-  approvedOutwards    StockOutward[]     @relation("OutwardApprovedBy")
-  requestedTransfers  StockTransfer[]    @relation("TransferRequestedBy")
-  approvedTransfers   StockTransfer[]    @relation("TransferApprovedBy")
-  createdAdjustments  StockAdjustment[]  @relation("AdjustmentCreatedBy")
-  approvedAdjustments StockAdjustment[]  @relation("AdjustmentApprovedBy")
-  createdPOs          PurchaseOrder[]    @relation("POCreatedBy")
-  approvedPOs         PurchaseOrder[]    @relation("POApprovedBy")
+  createdInwards      StockInward[]           @relation("InwardReceivedBy")
+  requestedOutwards   StockOutward[]          @relation("OutwardRequestedBy")
+  approvedOutwards    StockOutward[]          @relation("OutwardApprovedBy")
+  requestedTransfers  StockTransfer[]         @relation("TransferRequestedBy")
+  approvedTransfers   StockTransfer[]         @relation("TransferApprovedBy")
+  createdAdjustments  StockAdjustment[]       @relation("AdjustmentCreatedBy")
+  approvedAdjustments StockAdjustment[]       @relation("AdjustmentApprovedBy")
+  createdPOs          PurchaseOrder[]         @relation("POCreatedBy")
+  approvedPOs         PurchaseOrder[]         @relation("POApprovedBy")
   ledgerEntries       InventoryLedger[]
   uploadedAttachments Attachment[]
   documentAccess      DocumentAccessLog[]
-  approvals           Approval[]         @relation("ApprovalDecidedBy")
-  approvalRequests    Approval[]         @relation("ApprovalRequestedBy")
-  fuelEntries         FuelEntry[]        @relation("FuelEnteredBy")
-  voidedFuelEntries   FuelEntry[]        @relation("FuelVoidedBy")
-  maintenanceRecords  VehicleMaintenance[] @relation("MaintenanceCreatedBy")
-  archivedMaintenance VehicleMaintenance[] @relation("MaintenanceArchivedBy")
+  approvals           Approval[]              @relation("ApprovalDecidedBy")
+  approvalRequests    Approval[]              @relation("ApprovalRequestedBy")
+  fuelEntries         FuelEntry[]             @relation("FuelEnteredBy")
+  voidedFuelEntries   FuelEntry[]             @relation("FuelVoidedBy")
+  maintenanceRecords  VehicleMaintenance[]    @relation("MaintenanceCreatedBy")
+  archivedMaintenance VehicleMaintenance[]    @relation("MaintenanceArchivedBy")
   temperatureLogs     StorageTemperatureLog[]
   managedWarehouses   Warehouse[]
   gateEntriesStaffed  VehicleGateEntry[]
   settingsUpdated     SystemSetting[]
+
+  procurementsCreated    Procurement[]          @relation("ProcurementCreatedBy")
+  unloadingsStaffed      Unloading[]
+  sortingsDone           Sorting[]
+  wastagesRecorded       Wastage[]              @relation("WastageRecordedBy")
+  gradeLedgerEntries     GradeLedger[]
+  salesOrdersCreated     SalesOrder[]           @relation("SalesOrderCreatedBy")
+  salesOrdersApproved    SalesOrder[]           @relation("SalesOrderApprovedBy")
+  tripsCreated           Trip[]                 @relation("TripCreatedBy")
+  tripsLoaded            Trip[]                 @relation("TripLoadingStaff")
+  cleaningsStaffed       Cleaning[]
+  shiftsSupervised       Shift[]                @relation("ShiftSupervisor")
+  handoversAsPrevious    ShiftHandover[]        @relation("HandoverPreviousSupervisor")
+  handoversAsNew         ShiftHandover[]        @relation("HandoverNewSupervisor")
+  nextDayPrepsCreated    NextDayPreparation[]
+  checklistItemsAssigned NextDayChecklistItem[]
 
   @@index([roleId])
 }
@@ -66,14 +82,14 @@ model Role {
   isSystem    Boolean  @default(false)
   createdAt   DateTime @default(now())
 
-  users       User[]
-  permissions RolePermission[]
+  users         User[]
+  permissions   RolePermission[]
   notifications Notification[]
 }
 
 model Permission {
-  id          String @id @default(cuid())
-  code        String @unique
+  id          String  @id @default(cuid())
+  code        String  @unique
   description String?
 
   roles RolePermission[]
@@ -89,15 +105,15 @@ model RolePermission {
 }
 
 model Session {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash    String   @unique
-  ipAddress    String?
-  userAgent    String?
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-  revokedAt    DateTime?
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
 
   @@index([userId])
 }
@@ -122,26 +138,31 @@ model Category {
 }
 
 model Warehouse {
-  id        String   @id @default(cuid())
-  code      String   @unique
+  id        String       @id @default(cuid())
+  code      String       @unique
   name      String
   address   String?
   managerId String?
-  manager   User?    @relation(fields: [managerId], references: [id])
+  manager   User?        @relation(fields: [managerId], references: [id])
   contact   String?
   status    ActiveStatus @default(ACTIVE)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
-  locations         Location[]
-  items             Item[]
-  inwards           StockInward[]
-  outwards          StockOutward[]
-  transfersOut      StockTransfer[]    @relation("TransferSource")
-  transfersIn       StockTransfer[]    @relation("TransferDest")
-  adjustments       StockAdjustment[]
-  ledgerEntries     InventoryLedger[]
-  temperatureLogs   StorageTemperatureLog[]
+  locations          Location[]
+  items              Item[]
+  inwards            StockInward[]
+  outwards           StockOutward[]
+  transfersOut       StockTransfer[]         @relation("TransferSource")
+  transfersIn        StockTransfer[]         @relation("TransferDest")
+  adjustments        StockAdjustment[]
+  ledgerEntries      InventoryLedger[]
+  temperatureLogs    StorageTemperatureLog[]
+  procurements       Procurement[]
+  procurementBatches ProcurementBatch[]
+  wastages           Wastage[]
+  itemGradeStocks    ItemGradeStock[]
+  gradeLedgerEntries GradeLedger[]
 
   @@index([status])
 }
@@ -162,24 +183,28 @@ model Location {
 }
 
 model Supplier {
-  id            String   @id @default(cuid())
-  code          String   @unique
+  id            String       @id @default(cuid())
+  code          String       @unique
   companyName   String
   contactPerson String?
   phone         String?
   email         String?
   address       String?
+  location      String?
   gstNumber     String?
   panNumber     String?
   status        ActiveStatus @default(ACTIVE)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  items          Item[]
-  purchaseOrders PurchaseOrder[]
-  inwards        StockInward[]
-  gateEntries    VehicleGateEntry[]
-  attachments    Attachment[] @relation("SupplierAttachments")
+  items              Item[]
+  purchaseOrders     PurchaseOrder[]
+  inwards            StockInward[]
+  gateEntries        VehicleGateEntry[]
+  attachments        Attachment[]       @relation("SupplierAttachments")
+  procurements       Procurement[]
+  procurementBatches ProcurementBatch[]
+  unloadings         Unloading[]
 
   @@index([status])
 }
@@ -199,41 +224,41 @@ enum StorageType {
 }
 
 model Item {
-  id               String   @id @default(cuid())
-  sku              String   @unique
-  itemCode         String   @unique
-  name             String
-  categoryId       String
-  category         Category @relation(fields: [categoryId], references: [id])
-  brand            String?
-  description      String?
-  unit             String
-  minStock         Decimal  @default(0) @db.Decimal(14, 3)
-  maxStock         Decimal? @db.Decimal(14, 3)
-  reorderLevel     Decimal  @default(0) @db.Decimal(14, 3)
-  openingStock     Decimal  @default(0) @db.Decimal(14, 3)
-  currentStock     Decimal  @default(0) @db.Decimal(14, 3)
-  warehouseId      String?
-  warehouse        Warehouse? @relation(fields: [warehouseId], references: [id])
-  locationId       String?
-  location         Location?  @relation(fields: [locationId], references: [id])
-  supplierId       String?
-  supplier         Supplier?  @relation(fields: [supplierId], references: [id])
-  purchasePrice    Decimal? @db.Decimal(14, 2)
-  taxPercent       Decimal? @db.Decimal(5, 2)
-  hsnCode          String?
-  barcode          String?  @unique
-  qrCodePayload    String?  @unique
-  batchTracked     Boolean  @default(false)
-  serialTracked    Boolean  @default(false)
-  expiryTracked    Boolean  @default(false)
-  imageUrl         String?
-  isActive         Boolean  @default(true)
+  id            String     @id @default(cuid())
+  sku           String     @unique
+  itemCode      String     @unique
+  name          String
+  categoryId    String
+  category      Category   @relation(fields: [categoryId], references: [id])
+  brand         String?
+  description   String?
+  unit          String
+  minStock      Decimal    @default(0) @db.Decimal(14, 3)
+  maxStock      Decimal?   @db.Decimal(14, 3)
+  reorderLevel  Decimal    @default(0) @db.Decimal(14, 3)
+  openingStock  Decimal    @default(0) @db.Decimal(14, 3)
+  currentStock  Decimal    @default(0) @db.Decimal(14, 3)
+  warehouseId   String?
+  warehouse     Warehouse? @relation(fields: [warehouseId], references: [id])
+  locationId    String?
+  location      Location?  @relation(fields: [locationId], references: [id])
+  supplierId    String?
+  supplier      Supplier?  @relation(fields: [supplierId], references: [id])
+  purchasePrice Decimal?   @db.Decimal(14, 2)
+  taxPercent    Decimal?   @db.Decimal(5, 2)
+  hsnCode       String?
+  barcode       String?    @unique
+  qrCodePayload String?    @unique
+  batchTracked  Boolean    @default(false)
+  serialTracked Boolean    @default(false)
+  expiryTracked Boolean    @default(false)
+  imageUrl      String?
+  isActive      Boolean    @default(true)
 
   // Plan2: vegetable storage / temperature management
-  isTemperatureSensitive Boolean  @default(false)
-  storageMinTempC        Decimal? @db.Decimal(5, 2)
-  storageMaxTempC        Decimal? @db.Decimal(5, 2)
+  isTemperatureSensitive Boolean      @default(false)
+  storageMinTempC        Decimal?     @db.Decimal(5, 2)
+  storageMaxTempC        Decimal?     @db.Decimal(5, 2)
   storageType            StorageType?
   storageLocationText    String?
   shelfLifeDays          Int?
@@ -241,14 +266,21 @@ model Item {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  inwardItems      StockInwardItem[]
-  outwardItems     StockOutwardItem[]
-  transferItems    StockTransferItem[]
-  adjustments      StockAdjustment[]
-  ledgerEntries    InventoryLedger[]
-  poItems          PurchaseOrderItem[]
-  temperatureLogs  StorageTemperatureLog[]
-  attachments      Attachment[] @relation("ItemAttachments")
+  inwardItems        StockInwardItem[]
+  outwardItems       StockOutwardItem[]
+  transferItems      StockTransferItem[]
+  adjustments        StockAdjustment[]
+  ledgerEntries      InventoryLedger[]
+  poItems            PurchaseOrderItem[]
+  temperatureLogs    StorageTemperatureLog[]
+  attachments        Attachment[]            @relation("ItemAttachments")
+  procurementItems   ProcurementItem[]
+  procurementBatches ProcurementBatch[]
+  wastages           Wastage[]
+  itemGradeStocks    ItemGradeStock[]
+  gradeLedgerEntries GradeLedger[]
+  salesOrderItems    SalesOrderItem[]
+  tripItems          TripItem[]
 
   @@index([categoryId])
   @@index([warehouseId])
@@ -304,51 +336,51 @@ enum InwardStatus {
 }
 
 model StockInward {
-  id             String       @id @default(cuid())
-  inwardNumber   String       @unique
-  date           DateTime
-  supplierId     String?
-  supplier       Supplier?    @relation(fields: [supplierId], references: [id])
+  id              String         @id @default(cuid())
+  inwardNumber    String         @unique
+  date            DateTime
+  supplierId      String?
+  supplier        Supplier?      @relation(fields: [supplierId], references: [id])
   purchaseOrderId String?
-  purchaseOrder  PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
-  invoiceNumber  String?
-  vehicleId      String?
-  vehicle        Vehicle?     @relation(fields: [vehicleId], references: [id])
-  driverId       String?
-  driver         Driver?      @relation(fields: [driverId], references: [id])
-  warehouseId    String
-  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id])
-  receivedById   String
-  receivedBy     User         @relation("InwardReceivedBy", fields: [receivedById], references: [id])
-  remarks        String?
-  status         InwardStatus @default(DRAFT)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  invoiceNumber   String?
+  vehicleId       String?
+  vehicle         Vehicle?       @relation(fields: [vehicleId], references: [id])
+  driverId        String?
+  driver          Driver?        @relation(fields: [driverId], references: [id])
+  warehouseId     String
+  warehouse       Warehouse      @relation(fields: [warehouseId], references: [id])
+  receivedById    String
+  receivedBy      User           @relation("InwardReceivedBy", fields: [receivedById], references: [id])
+  remarks         String?
+  status          InwardStatus   @default(DRAFT)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   items       StockInwardItem[]
-  attachments Attachment[] @relation("InwardAttachments")
-  approvals   Approval[]   @relation("InwardApprovals")
+  attachments Attachment[]      @relation("InwardAttachments")
+  approvals   Approval[]        @relation("InwardApprovals")
 
   @@index([status])
   @@index([date])
 }
 
 model StockInwardItem {
-  id           String   @id @default(cuid())
+  id           String             @id @default(cuid())
   inwardId     String
-  inward       StockInward @relation(fields: [inwardId], references: [id], onDelete: Cascade)
+  inward       StockInward        @relation(fields: [inwardId], references: [id], onDelete: Cascade)
   itemId       String
-  item         Item     @relation(fields: [itemId], references: [id])
+  item         Item               @relation(fields: [itemId], references: [id])
   poItemId     String?
   poItem       PurchaseOrderItem? @relation(fields: [poItemId], references: [id])
-  quantity     Decimal  @db.Decimal(14, 3)
+  quantity     Decimal            @db.Decimal(14, 3)
   unit         String
   batchNumber  String?
   serialNumber String?
   expiryDate   DateTime?
-  rate         Decimal? @db.Decimal(14, 2)
-  taxPercent   Decimal? @db.Decimal(5, 2)
-  total        Decimal? @db.Decimal(14, 2)
+  rate         Decimal?           @db.Decimal(14, 2)
+  taxPercent   Decimal?           @db.Decimal(5, 2)
+  total        Decimal?           @db.Decimal(14, 2)
 
   @@index([inwardId])
   @@index([itemId])
@@ -389,24 +421,24 @@ model StockOutward {
   updatedAt     DateTime      @updatedAt
 
   items       StockOutwardItem[]
-  attachments Attachment[] @relation("OutwardAttachments")
-  approvals   Approval[]   @relation("OutwardApprovals")
+  attachments Attachment[]       @relation("OutwardAttachments")
+  approvals   Approval[]         @relation("OutwardApprovals")
 
   @@index([status])
   @@index([date])
 }
 
 model StockOutwardItem {
-  id               String   @id @default(cuid())
-  outwardId        String
-  outward          StockOutward @relation(fields: [outwardId], references: [id], onDelete: Cascade)
-  itemId           String
-  item             Item     @relation(fields: [itemId], references: [id])
-  availableQtySnapshot Decimal @db.Decimal(14, 3)
-  requestedQty     Decimal  @db.Decimal(14, 3)
-  unit             String
-  batchNumber      String?
-  serialNumber     String?
+  id                   String       @id @default(cuid())
+  outwardId            String
+  outward              StockOutward @relation(fields: [outwardId], references: [id], onDelete: Cascade)
+  itemId               String
+  item                 Item         @relation(fields: [itemId], references: [id])
+  availableQtySnapshot Decimal      @db.Decimal(14, 3)
+  requestedQty         Decimal      @db.Decimal(14, 3)
+  unit                 String
+  batchNumber          String?
+  serialNumber         String?
 
   @@index([outwardId])
   @@index([itemId])
@@ -423,36 +455,36 @@ enum TransferStatus {
 }
 
 model StockTransfer {
-  id                 String         @id @default(cuid())
-  transferNumber     String         @unique
-  sourceWarehouseId  String
-  sourceWarehouse    Warehouse      @relation("TransferSource", fields: [sourceWarehouseId], references: [id])
-  destWarehouseId    String
-  destWarehouse      Warehouse      @relation("TransferDest", fields: [destWarehouseId], references: [id])
-  requestedById      String
-  requestedBy        User           @relation("TransferRequestedBy", fields: [requestedById], references: [id])
-  approvedById       String?
-  approvedBy         User?          @relation("TransferApprovedBy", fields: [approvedById], references: [id])
-  dispatchDate       DateTime?
-  receivedDate       DateTime?
-  remarks            String?
-  status             TransferStatus @default(DRAFT)
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  transferNumber    String         @unique
+  sourceWarehouseId String
+  sourceWarehouse   Warehouse      @relation("TransferSource", fields: [sourceWarehouseId], references: [id])
+  destWarehouseId   String
+  destWarehouse     Warehouse      @relation("TransferDest", fields: [destWarehouseId], references: [id])
+  requestedById     String
+  requestedBy       User           @relation("TransferRequestedBy", fields: [requestedById], references: [id])
+  approvedById      String?
+  approvedBy        User?          @relation("TransferApprovedBy", fields: [approvedById], references: [id])
+  dispatchDate      DateTime?
+  receivedDate      DateTime?
+  remarks           String?
+  status            TransferStatus @default(DRAFT)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   items     StockTransferItem[]
-  approvals Approval[] @relation("TransferApprovals")
+  approvals Approval[]          @relation("TransferApprovals")
 
   @@index([status])
 }
 
 model StockTransferItem {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   transferId  String
   transfer    StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
   itemId      String
-  item        Item     @relation(fields: [itemId], references: [id])
-  quantity    Decimal  @db.Decimal(14, 3)
+  item        Item          @relation(fields: [itemId], references: [id])
+  quantity    Decimal       @db.Decimal(14, 3)
   unit        String
   batchNumber String?
 
@@ -507,25 +539,26 @@ enum POStatus {
 }
 
 model PurchaseOrder {
-  id               String   @id @default(cuid())
-  poNumber         String   @unique
+  id               String    @id @default(cuid())
+  poNumber         String    @unique
   supplierId       String
-  supplier         Supplier @relation(fields: [supplierId], references: [id])
+  supplier         Supplier  @relation(fields: [supplierId], references: [id])
   date             DateTime
   expectedDelivery DateTime?
   createdById      String
-  createdBy        User     @relation("POCreatedBy", fields: [createdById], references: [id])
+  createdBy        User      @relation("POCreatedBy", fields: [createdById], references: [id])
   approvedById     String?
-  approvedBy       User?    @relation("POApprovedBy", fields: [approvedById], references: [id])
+  approvedBy       User?     @relation("POApprovedBy", fields: [approvedById], references: [id])
   remarks          String?
-  totalAmount      Decimal  @default(0) @db.Decimal(14, 2)
-  status           POStatus @default(DRAFT)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  totalAmount      Decimal   @default(0) @db.Decimal(14, 2)
+  status           POStatus  @default(DRAFT)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  items    PurchaseOrderItem[]
-  inwards  StockInward[]
-  approvals Approval[] @relation("POApprovals")
+  items        PurchaseOrderItem[]
+  inwards      StockInward[]
+  approvals    Approval[]          @relation("POApprovals")
+  procurements Procurement[]
 
   @@index([status])
 }
@@ -569,53 +602,59 @@ enum MaintenanceState {
 }
 
 model Vehicle {
-  id                  String        @id @default(cuid())
-  vehicleNumber       String        @unique
-  vehicleType         String
-  manufacturer        String?
-  model               String?
-  ownerCompany        String?
-  registrationDate    DateTime?
-  registrationExpiry  DateTime?
-  insuranceExpiry     DateTime?
-  pucExpiry           DateTime?
-  fitnessExpiry       DateTime?
-  permitExpiry        DateTime?
-  capacity            String?
-  currentDriverId     String?
-  currentDriver       Driver?       @relation("CurrentVehicle", fields: [currentDriverId], references: [id])
-  currentLocation     String?
-  status              VehicleStatus @default(AVAILABLE)
-  imageUrl            String?
+  id                 String        @id @default(cuid())
+  vehicleNumber      String        @unique
+  vehicleType        String
+  manufacturer       String?
+  model              String?
+  ownerCompany       String?
+  registrationDate   DateTime?
+  registrationExpiry DateTime?
+  insuranceExpiry    DateTime?
+  pucExpiry          DateTime?
+  fitnessExpiry      DateTime?
+  permitExpiry       DateTime?
+  capacity           String?
+  currentDriverId    String?
+  currentDriver      Driver?       @relation("CurrentVehicle", fields: [currentDriverId], references: [id])
+  currentLocation    String?
+  status             VehicleStatus @default(AVAILABLE)
+  imageUrl           String?
 
   // Plan2: fuel management
-  fuelType              String?
-  odometerKm            Decimal  @default(0) @db.Decimal(12, 1)
+  fuelType                 String?
+  odometerKm               Decimal  @default(0) @db.Decimal(12, 1)
   fuelEfficiencyTargetKmpl Decimal? @db.Decimal(8, 2)
-  fuelCostPerKmTarget   Decimal? @db.Decimal(8, 2)
+  fuelCostPerKmTarget      Decimal? @db.Decimal(8, 2)
 
   // Plan2: maintenance management
-  lastServiceDate       DateTime?
-  lastServiceKm         Decimal?  @db.Decimal(12, 1)
-  nextServiceDate       DateTime?
-  nextServiceKm         Decimal?  @db.Decimal(12, 1)
-  serviceIntervalDays   Int?
-  serviceIntervalKm     Decimal?  @db.Decimal(12, 1)
-  maintenanceState      MaintenanceState @default(UP_TO_DATE)
-  maintenanceOverride   Boolean   @default(false)
+  lastServiceDate           DateTime?
+  lastServiceKm             Decimal?         @db.Decimal(12, 1)
+  nextServiceDate           DateTime?
+  nextServiceKm             Decimal?         @db.Decimal(12, 1)
+  serviceIntervalDays       Int?
+  serviceIntervalKm         Decimal?         @db.Decimal(12, 1)
+  maintenanceState          MaintenanceState @default(UP_TO_DATE)
+  maintenanceOverride       Boolean          @default(false)
   maintenanceOverrideReason String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  documents       VehicleDocument[]
-  gateEntries     VehicleGateEntry[]
-  gateExits       VehicleGateExit[]
-  inwards         StockInward[]
-  outwards        StockOutward[]
-  fuelEntries     FuelEntry[]
+  documents          VehicleDocument[]
+  gateEntries        VehicleGateEntry[]
+  gateExits          VehicleGateExit[]
+  inwards            StockInward[]
+  outwards           StockOutward[]
+  fuelEntries        FuelEntry[]
   maintenanceRecords VehicleMaintenance[]
-  attachments     Attachment[] @relation("VehicleAttachments")
+  attachments        Attachment[]         @relation("VehicleAttachments")
+  procurements       Procurement[]
+  procurementBatches ProcurementBatch[]
+  unloadings         Unloading[]
+  trips              Trip[]
+  crateReturns       CrateReturn[]
+  cleanings          Cleaning[]
 
   @@index([status])
   @@index([maintenanceState])
@@ -637,15 +676,15 @@ enum VerificationStatus {
 }
 
 model VehicleDocument {
-  id              String              @id @default(cuid())
-  vehicleId       String
-  vehicle         Vehicle             @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-  docType         VehicleDocType
-  docNumber       String?
-  issueDate       DateTime?
-  expiryDate      DateTime?
+  id                 String             @id @default(cuid())
+  vehicleId          String
+  vehicle            Vehicle            @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  docType            VehicleDocType
+  docNumber          String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
   verificationStatus VerificationStatus @default(UNVERIFIED)
-  createdAt       DateTime            @default(now())
+  createdAt          DateTime           @default(now())
 
   attachments Attachment[] @relation("VehicleDocAttachments")
 
@@ -674,14 +713,19 @@ model Driver {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  documents      DriverDocument[]
-  vehicles       Vehicle[]        @relation("CurrentVehicle")
-  gateEntries    VehicleGateEntry[]
-  gateExits      VehicleGateExit[]
-  inwards        StockInward[]
-  outwards       StockOutward[]
-  fuelEntries    FuelEntry[]
-  attachments    Attachment[] @relation("DriverAttachments")
+  documents          DriverDocument[]
+  vehicles           Vehicle[]          @relation("CurrentVehicle")
+  gateEntries        VehicleGateEntry[]
+  gateExits          VehicleGateExit[]
+  inwards            StockInward[]
+  outwards           StockOutward[]
+  fuelEntries        FuelEntry[]
+  attachments        Attachment[]       @relation("DriverAttachments")
+  procurements       Procurement[]
+  procurementBatches ProcurementBatch[]
+  unloadings         Unloading[]
+  trips              Trip[]
+  crateReturns       CrateReturn[]
 
   @@index([status])
 }
@@ -700,20 +744,20 @@ enum DriverDocType {
 // Sensitive identity documents: numbers stored encrypted (AES-256-GCM) with only
 // a precomputed masked string kept in plaintext for display purposes.
 model DriverDocument {
-  id                 String              @id @default(cuid())
+  id                 String             @id @default(cuid())
   driverId           String
-  driver             Driver              @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  driver             Driver             @relation(fields: [driverId], references: [id], onDelete: Cascade)
   docType            DriverDocType
-  numberEncrypted    String?             // ciphertext, never returned to client directly
-  numberMasked       String?             // e.g. "XXXX XXXX 4821"
+  numberEncrypted    String? // ciphertext, never returned to client directly
+  numberMasked       String? // e.g. "XXXX XXXX 4821"
   licenceClass       String?
   issueDate          DateTime?
   expiryDate         DateTime?
   issuingAuthority   String?
-  verificationStatus VerificationStatus  @default(UNVERIFIED)
-  isSensitive        Boolean             @default(false)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  isSensitive        Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   attachments Attachment[] @relation("DriverDocAttachments")
 
@@ -748,28 +792,31 @@ model VehicleGateEntry {
   status          GateStatus @default(INSIDE)
   createdAt       DateTime   @default(now())
 
-  exit VehicleGateExit?
+  exit               VehicleGateExit?
+  procurements       Procurement[]
+  procurementBatches ProcurementBatch[]
+  unloading          Unloading?
 
   @@index([status])
   @@index([vehicleId])
 }
 
 model VehicleGateExit {
-  id                    String   @id @default(cuid())
-  gateExitNumber        String   @unique
-  gateEntryId           String   @unique
-  gateEntry             VehicleGateEntry @relation(fields: [gateEntryId], references: [id])
-  vehicleId             String
-  vehicle               Vehicle  @relation(fields: [vehicleId], references: [id])
-  driverId              String
-  driver                Driver   @relation(fields: [driverId], references: [id])
-  timeOut               DateTime @default(now())
-  destination           String?
-  material              String?
-  receiver              String?
-  remarks               String?
+  id                     String           @id @default(cuid())
+  gateExitNumber         String           @unique
+  gateEntryId            String           @unique
+  gateEntry              VehicleGateEntry @relation(fields: [gateEntryId], references: [id])
+  vehicleId              String
+  vehicle                Vehicle          @relation(fields: [vehicleId], references: [id])
+  driverId               String
+  driver                 Driver           @relation(fields: [driverId], references: [id])
+  timeOut                DateTime         @default(now())
+  destination            String?
+  material               String?
+  receiver               String?
+  remarks                String?
   totalTimeInsideMinutes Int
-  createdAt             DateTime @default(now())
+  createdAt              DateTime         @default(now())
 
   @@index([vehicleId])
 }
@@ -779,34 +826,34 @@ model VehicleGateExit {
 // ==================================================
 
 model FuelEntry {
-  id                  String   @id @default(cuid())
-  vehicleId           String
-  vehicle             Vehicle  @relation(fields: [vehicleId], references: [id])
-  date                DateTime
-  driverId            String?
-  driver              Driver?  @relation(fields: [driverId], references: [id])
-  tripId              String?
-  fuelStationVendor   String?
-  fuelType            String
-  previousOdometerKm  Decimal  @db.Decimal(12, 1)
-  currentOdometerKm   Decimal  @db.Decimal(12, 1)
-  distanceKm          Decimal  @db.Decimal(12, 1)
-  fuelQuantityLiters  Decimal  @db.Decimal(10, 2)
-  fuelRate            Decimal  @db.Decimal(10, 2)
-  totalFuelCost       Decimal  @db.Decimal(12, 2)
-  mileageKmpl         Decimal? @db.Decimal(8, 2)
-  fuelCostPerKm       Decimal? @db.Decimal(8, 2)
-  isAnomaly           Boolean  @default(false)
-  anomalyNote         String?
-  remarks             String?
-  enteredById         String
-  enteredBy           User     @relation("FuelEnteredBy", fields: [enteredById], references: [id])
-  isVoided            Boolean  @default(false)
-  voidReason          String?
-  voidedById          String?
-  voidedBy            User?    @relation("FuelVoidedBy", fields: [voidedById], references: [id])
-  voidedAt            DateTime?
-  createdAt           DateTime @default(now())
+  id                 String    @id @default(cuid())
+  vehicleId          String
+  vehicle            Vehicle   @relation(fields: [vehicleId], references: [id])
+  date               DateTime
+  driverId           String?
+  driver             Driver?   @relation(fields: [driverId], references: [id])
+  tripId             String?
+  fuelStationVendor  String?
+  fuelType           String
+  previousOdometerKm Decimal   @db.Decimal(12, 1)
+  currentOdometerKm  Decimal   @db.Decimal(12, 1)
+  distanceKm         Decimal   @db.Decimal(12, 1)
+  fuelQuantityLiters Decimal   @db.Decimal(10, 2)
+  fuelRate           Decimal   @db.Decimal(10, 2)
+  totalFuelCost      Decimal   @db.Decimal(12, 2)
+  mileageKmpl        Decimal?  @db.Decimal(8, 2)
+  fuelCostPerKm      Decimal?  @db.Decimal(8, 2)
+  isAnomaly          Boolean   @default(false)
+  anomalyNote        String?
+  remarks            String?
+  enteredById        String
+  enteredBy          User      @relation("FuelEnteredBy", fields: [enteredById], references: [id])
+  isVoided           Boolean   @default(false)
+  voidReason         String?
+  voidedById         String?
+  voidedBy           User?     @relation("FuelVoidedBy", fields: [voidedById], references: [id])
+  voidedAt           DateTime?
+  createdAt          DateTime  @default(now())
 
   attachments Attachment[] @relation("FuelAttachments")
 
@@ -832,29 +879,29 @@ enum MaintenanceType {
 }
 
 model VehicleMaintenance {
-  id                String          @id @default(cuid())
-  vehicleId         String
-  vehicle           Vehicle         @relation(fields: [vehicleId], references: [id])
-  maintenanceType   MaintenanceType
-  serviceDate       DateTime
-  odometerKm        Decimal         @db.Decimal(12, 1)
+  id                  String          @id @default(cuid())
+  vehicleId           String
+  vehicle             Vehicle         @relation(fields: [vehicleId], references: [id])
+  maintenanceType     MaintenanceType
+  serviceDate         DateTime
+  odometerKm          Decimal         @db.Decimal(12, 1)
   serviceCenterVendor String?
-  technician        String?
-  workPerformed     String?
-  partsReplaced     String?
-  labourCost        Decimal         @default(0) @db.Decimal(12, 2)
-  partsCost         Decimal         @default(0) @db.Decimal(12, 2)
-  otherCost         Decimal         @default(0) @db.Decimal(12, 2)
-  totalCost         Decimal         @db.Decimal(12, 2)
-  remarks           String?
-  createdById       String
-  createdBy         User            @relation("MaintenanceCreatedBy", fields: [createdById], references: [id])
-  isArchived        Boolean         @default(false)
-  archiveReason     String?
-  archivedById      String?
-  archivedBy        User?           @relation("MaintenanceArchivedBy", fields: [archivedById], references: [id])
-  archivedAt        DateTime?
-  createdAt         DateTime        @default(now())
+  technician          String?
+  workPerformed       String?
+  partsReplaced       String?
+  labourCost          Decimal         @default(0) @db.Decimal(12, 2)
+  partsCost           Decimal         @default(0) @db.Decimal(12, 2)
+  otherCost           Decimal         @default(0) @db.Decimal(12, 2)
+  totalCost           Decimal         @db.Decimal(12, 2)
+  remarks             String?
+  createdById         String
+  createdBy           User            @relation("MaintenanceCreatedBy", fields: [createdById], references: [id])
+  isArchived          Boolean         @default(false)
+  archiveReason       String?
+  archivedById        String?
+  archivedBy          User?           @relation("MaintenanceArchivedBy", fields: [archivedById], references: [id])
+  archivedAt          DateTime?
+  createdAt           DateTime        @default(now())
 
   attachments Attachment[] @relation("MaintenanceAttachments")
 
@@ -878,21 +925,21 @@ enum TemperatureSource {
 }
 
 model StorageTemperatureLog {
-  id               String            @id @default(cuid())
-  itemId           String
-  item             Item              @relation(fields: [itemId], references: [id])
-  batchNumber      String?
-  warehouseId      String
-  warehouse        Warehouse         @relation(fields: [warehouseId], references: [id])
-  locationId       String?
-  location         Location?         @relation(fields: [locationId], references: [id])
-  recordedTempC    Decimal           @db.Decimal(5, 2)
-  recordedAt       DateTime          @default(now())
-  recordedById     String
-  recordedBy       User              @relation(fields: [recordedById], references: [id])
-  status           TemperatureStatus
-  source           TemperatureSource @default(MANUAL)
-  remarks          String?
+  id            String            @id @default(cuid())
+  itemId        String
+  item          Item              @relation(fields: [itemId], references: [id])
+  batchNumber   String?
+  warehouseId   String
+  warehouse     Warehouse         @relation(fields: [warehouseId], references: [id])
+  locationId    String?
+  location      Location?         @relation(fields: [locationId], references: [id])
+  recordedTempC Decimal           @db.Decimal(5, 2)
+  recordedAt    DateTime          @default(now())
+  recordedById  String
+  recordedBy    User              @relation(fields: [recordedById], references: [id])
+  status        TemperatureStatus
+  source        TemperatureSource @default(MANUAL)
+  remarks       String?
 
   @@index([itemId])
   @@index([warehouseId])
@@ -916,6 +963,9 @@ enum NotificationType {
   TEMPERATURE_ALERT
   FUEL_ANOMALY
   SYSTEM_ALERT
+  CRATE_OVERDUE
+  HIGH_WASTAGE
+  DISPATCH_PENDING
 }
 
 model Notification {
@@ -956,44 +1006,50 @@ model AuditLog {
 }
 
 model Attachment {
-  id            String    @id @default(cuid())
-  fileName      String
-  storageKey    String    @unique
-  mimeType      String
-  sizeBytes     Int
-  entityType    String
-  entityId      String
-  documentType  String?
-  expiryDate    DateTime?
-  isSensitive   Boolean   @default(false)
-  uploadedById  String
-  uploadedBy    User      @relation(fields: [uploadedById], references: [id])
-  uploadedAt    DateTime  @default(now())
-  version       Int       @default(1)
-  isDeleted     Boolean   @default(false)
+  id           String    @id @default(cuid())
+  fileName     String
+  storageKey   String    @unique
+  mimeType     String
+  sizeBytes    Int
+  entityType   String
+  entityId     String
+  documentType String?
+  expiryDate   DateTime?
+  isSensitive  Boolean   @default(false)
+  uploadedById String
+  uploadedBy   User      @relation(fields: [uploadedById], references: [id])
+  uploadedAt   DateTime  @default(now())
+  version      Int       @default(1)
+  isDeleted    Boolean   @default(false)
 
-  item        Item?       @relation("ItemAttachments", fields: [itemFk], references: [id])
-  itemFk      String?
-  supplier    Supplier?   @relation("SupplierAttachments", fields: [supplierFk], references: [id])
-  supplierFk  String?
-  vehicle     Vehicle?    @relation("VehicleAttachments", fields: [vehicleFk], references: [id])
-  vehicleFk   String?
-  driver      Driver?     @relation("DriverAttachments", fields: [driverFk], references: [id])
-  driverFk    String?
-  vehicleDoc  VehicleDocument? @relation("VehicleDocAttachments", fields: [vehicleDocFk], references: [id])
-  vehicleDocFk String?
-  driverDoc   DriverDocument? @relation("DriverDocAttachments", fields: [driverDocFk], references: [id])
-  driverDocFk String?
-  inward      StockInward? @relation("InwardAttachments", fields: [inwardFk], references: [id])
-  inwardFk    String?
-  outward     StockOutward? @relation("OutwardAttachments", fields: [outwardFk], references: [id])
-  outwardFk   String?
-  adjustment  StockAdjustment? @relation("AdjustmentAttachments", fields: [adjustmentFk], references: [id])
-  adjustmentFk String?
-  fuelEntry   FuelEntry? @relation("FuelAttachments", fields: [fuelEntryFk], references: [id])
-  fuelEntryFk String?
-  maintenance VehicleMaintenance? @relation("MaintenanceAttachments", fields: [maintenanceFk], references: [id])
+  item          Item?               @relation("ItemAttachments", fields: [itemFk], references: [id])
+  itemFk        String?
+  supplier      Supplier?           @relation("SupplierAttachments", fields: [supplierFk], references: [id])
+  supplierFk    String?
+  vehicle       Vehicle?            @relation("VehicleAttachments", fields: [vehicleFk], references: [id])
+  vehicleFk     String?
+  driver        Driver?             @relation("DriverAttachments", fields: [driverFk], references: [id])
+  driverFk      String?
+  vehicleDoc    VehicleDocument?    @relation("VehicleDocAttachments", fields: [vehicleDocFk], references: [id])
+  vehicleDocFk  String?
+  driverDoc     DriverDocument?     @relation("DriverDocAttachments", fields: [driverDocFk], references: [id])
+  driverDocFk   String?
+  inward        StockInward?        @relation("InwardAttachments", fields: [inwardFk], references: [id])
+  inwardFk      String?
+  outward       StockOutward?       @relation("OutwardAttachments", fields: [outwardFk], references: [id])
+  outwardFk     String?
+  adjustment    StockAdjustment?    @relation("AdjustmentAttachments", fields: [adjustmentFk], references: [id])
+  adjustmentFk  String?
+  fuelEntry     FuelEntry?          @relation("FuelAttachments", fields: [fuelEntryFk], references: [id])
+  fuelEntryFk   String?
+  maintenance   VehicleMaintenance? @relation("MaintenanceAttachments", fields: [maintenanceFk], references: [id])
   maintenanceFk String?
+  procurement   Procurement?        @relation("ProcurementAttachments", fields: [procurementFk], references: [id])
+  procurementFk String?
+  salesOrder    SalesOrder?         @relation("SalesOrderAttachments", fields: [salesOrderFk], references: [id])
+  salesOrderFk  String?
+  employee      Employee?           @relation("EmployeeAttachments", fields: [employeeFk], references: [id])
+  employeeFk    String?
 
   accessLogs DocumentAccessLog[]
 
@@ -1038,16 +1094,20 @@ model Approval {
   decision      ApprovalDecision @default(PENDING)
   comment       String?
 
-  outward    StockOutward?    @relation("OutwardApprovals", fields: [outwardFk], references: [id])
-  outwardFk  String?
-  adjustment StockAdjustment? @relation("AdjustmentApprovals", fields: [adjustmentFk], references: [id])
+  outward      StockOutward?    @relation("OutwardApprovals", fields: [outwardFk], references: [id])
+  outwardFk    String?
+  adjustment   StockAdjustment? @relation("AdjustmentApprovals", fields: [adjustmentFk], references: [id])
   adjustmentFk String?
-  po         PurchaseOrder?   @relation("POApprovals", fields: [poFk], references: [id])
-  poFk       String?
-  transfer   StockTransfer?   @relation("TransferApprovals", fields: [transferFk], references: [id])
-  transferFk String?
-  inward     StockInward?     @relation("InwardApprovals", fields: [inwardFk], references: [id])
-  inwardFk   String?
+  po           PurchaseOrder?   @relation("POApprovals", fields: [poFk], references: [id])
+  poFk         String?
+  transfer     StockTransfer?   @relation("TransferApprovals", fields: [transferFk], references: [id])
+  transferFk   String?
+  inward       StockInward?     @relation("InwardApprovals", fields: [inwardFk], references: [id])
+  inwardFk     String?
+  salesOrder   SalesOrder?      @relation("SalesOrderApprovals", fields: [salesOrderFk], references: [id])
+  salesOrderFk String?
+  wastage      Wastage?         @relation("WastageApprovals", fields: [wastageFk], references: [id])
+  wastageFk    String?
 
   @@index([entityType, entityId])
   @@index([decision])
@@ -1056,16 +1116,738 @@ model Approval {
 // Backs sequential, human-readable document numbers (INW-2026-000123, etc).
 // Incremented inside the same transaction as the document that consumes it.
 model NumberSequence {
-  key          String   @id // e.g. "STOCK_INWARD-2026"
-  lastValue    Int      @default(0)
-  updatedAt    DateTime @updatedAt
+  key       String   @id // e.g. "STOCK_INWARD-2026"
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
 }
 
 model SystemSetting {
-  id            String   @id @default(cuid())
-  key           String   @unique
-  value         Json
-  updatedById   String?
-  updatedBy     User?    @relation(fields: [updatedById], references: [id])
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt
+}
+
+// ==================================================
+// KISHAN CORPORATION EXPANSION
+// Fresh-produce procurement -> sorting/grading -> sales -> dispatch ->
+// crates -> operations -> workforce. See FULL_WEBSITE_BUILD_PROMPT.md and
+// .claude-plans/AGENT_CONVENTIONS.md for the module-by-module build plan.
+// ==================================================
+
+// ==================================================
+// SALES MASTER DATA (Vendor = existing Supplier model, reused as-is)
+// ==================================================
+
+model Customer {
+  id            String       @id @default(cuid())
+  customerCode  String       @unique
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  location      String?
+  gstNumber     String?
+  status        ActiveStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  salesOrders  SalesOrder[]
+  trips        Trip[]
+  crates       Crate[]
+  crateReturns CrateReturn[]
+
+  @@index([status])
+}
+
+// ==================================================
+// PROCUREMENT
+// ==================================================
+
+enum ProcurementStatus {
+  DRAFT
+  SUBMITTED
+  CANCELLED
+}
+
+enum BatchStatus {
+  PENDING_UNLOADING
+  PENDING_SORTING
+  SORTED
+  CLOSED
+}
+
+model Procurement {
+  id                String            @id @default(cuid())
+  procurementNumber String            @unique
+  date              DateTime
+  supplierId        String
+  supplier          Supplier          @relation(fields: [supplierId], references: [id])
+  vehicleId         String?
+  vehicle           Vehicle?          @relation(fields: [vehicleId], references: [id])
+  driverId          String?
+  driver            Driver?           @relation(fields: [driverId], references: [id])
+  gateEntryId       String?
+  gateEntry         VehicleGateEntry? @relation(fields: [gateEntryId], references: [id])
+  warehouseId       String
+  warehouse         Warehouse         @relation(fields: [warehouseId], references: [id])
+  purchaseOrderId   String?
+  purchaseOrder     PurchaseOrder?    @relation(fields: [purchaseOrderId], references: [id])
+  invoiceNumber     String?
+  createdById       String
+  createdBy         User              @relation("ProcurementCreatedBy", fields: [createdById], references: [id])
+  remarks           String?
+  status            ProcurementStatus @default(DRAFT)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  items       ProcurementItem[]
+  batches     ProcurementBatch[]
+  attachments Attachment[]       @relation("ProcurementAttachments")
+
+  @@index([status])
+  @@index([date])
+}
+
+model ProcurementItem {
+  id            String      @id @default(cuid())
+  procurementId String
+  procurement   Procurement @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  itemId        String
+  item          Item        @relation(fields: [itemId], references: [id])
+  quantity      Decimal     @db.Decimal(14, 3)
+  unit          String
+  weight        Decimal     @db.Decimal(14, 3)
+  quality       String?
+  purchasePrice Decimal?    @db.Decimal(14, 2)
+  total         Decimal?    @db.Decimal(14, 2)
+
+  batch ProcurementBatch?
+
+  @@index([procurementId])
+  @@index([itemId])
+}
+
+// Carries the full traceability chain (vendor -> vehicle -> driver -> gate entry)
+// directly on the batch so §17 batch traceability never needs deep joins.
+model ProcurementBatch {
+  id                String            @id @default(cuid())
+  batchNumber       String            @unique
+  procurementId     String
+  procurement       Procurement       @relation(fields: [procurementId], references: [id])
+  procurementItemId String            @unique
+  procurementItem   ProcurementItem   @relation(fields: [procurementItemId], references: [id])
+  supplierId        String
+  supplier          Supplier          @relation(fields: [supplierId], references: [id])
+  itemId            String
+  item              Item              @relation(fields: [itemId], references: [id])
+  vehicleId         String?
+  vehicle           Vehicle?          @relation(fields: [vehicleId], references: [id])
+  driverId          String?
+  driver            Driver?           @relation(fields: [driverId], references: [id])
+  gateEntryId       String?
+  gateEntry         VehicleGateEntry? @relation(fields: [gateEntryId], references: [id])
+  warehouseId       String
+  warehouse         Warehouse         @relation(fields: [warehouseId], references: [id])
+  rawWeight         Decimal           @db.Decimal(14, 3)
+  date              DateTime
+  status            BatchStatus       @default(PENDING_UNLOADING)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  sorting            Sorting?
+  wastages           Wastage[]
+  gradeLedgerEntries GradeLedger[]
+
+  @@index([status])
+  @@index([itemId])
+  @@index([supplierId])
+}
+
+// One row per gate entry (a whole truck arrival), independent of how many
+// procurement line items/batches that truck's material is split into.
+model Unloading {
+  id               String           @id @default(cuid())
+  gateEntryId      String           @unique
+  gateEntry        VehicleGateEntry @relation(fields: [gateEntryId], references: [id])
+  vehicleId        String
+  vehicle          Vehicle          @relation(fields: [vehicleId], references: [id])
+  driverId         String
+  driver           Driver           @relation(fields: [driverId], references: [id])
+  supplierId       String?
+  supplier         Supplier?        @relation(fields: [supplierId], references: [id])
+  arrivalAt        DateTime?
+  unloadingStartAt DateTime?
+  unloadingEndAt   DateTime?
+  weight           Decimal?         @db.Decimal(14, 3)
+  unloadingStaffId String?
+  unloadingStaff   User?            @relation(fields: [unloadingStaffId], references: [id])
+  remarks          String?
+  createdAt        DateTime         @default(now())
+
+  @@index([vehicleId])
+}
+
+// ==================================================
+// SORTING / GRADING / WASTAGE + GRADE-AWARE STOCK
+// ==================================================
+
+model Sorting {
+  id               String           @id @default(cuid())
+  batchId          String           @unique
+  batch            ProcurementBatch @relation(fields: [batchId], references: [id])
+  rawWeight        Decimal          @db.Decimal(14, 3)
+  gradeAWeight     Decimal          @default(0) @db.Decimal(14, 3)
+  gradeBWeight     Decimal          @default(0) @db.Decimal(14, 3)
+  gradeCWeight     Decimal          @default(0) @db.Decimal(14, 3)
+  otherGradeWeight Decimal          @default(0) @db.Decimal(14, 3)
+  wasteWeight      Decimal          @default(0) @db.Decimal(14, 3)
+  wasteReason      WastageReason?
+  sortedById       String
+  sortedBy         User             @relation(fields: [sortedById], references: [id])
+  sortedAt         DateTime         @default(now())
+  remarks          String?
+  createdAt        DateTime         @default(now())
+
+  @@index([batchId])
+}
+
+enum WastageReason {
+  DAMAGED
+  ROTTEN
+  QUALITY_REJECTION
+  HANDLING_DAMAGE
+  EXPIRED
+  OTHER
+}
+
+// SORTING stage = waste recorded during sorting/grading of a batch.
+// WAREHOUSE stage = dumping/disposal of stock already in inventory (§48).
+enum WastageStage {
+  SORTING
+  WAREHOUSE
+}
+
+model Wastage {
+  id             String            @id @default(cuid())
+  wastageNumber  String            @unique
+  stage          WastageStage
+  batchId        String?
+  batch          ProcurementBatch? @relation(fields: [batchId], references: [id])
+  itemId         String
+  item           Item              @relation(fields: [itemId], references: [id])
+  warehouseId    String?
+  warehouse      Warehouse?        @relation(fields: [warehouseId], references: [id])
+  quantity       Decimal           @db.Decimal(14, 3)
+  reason         WastageReason
+  disposalMethod String?
+  date           DateTime
+  recordedById   String
+  recordedBy     User              @relation("WastageRecordedBy", fields: [recordedById], references: [id])
+  remarks        String?
+  createdAt      DateTime          @default(now())
+
+  approvals Approval[] @relation("WastageApprovals")
+
+  @@index([stage])
+  @@index([itemId])
+  @@index([date])
+}
+
+enum Grade {
+  RAW
+  GRADE_A
+  GRADE_B
+  GRADE_C
+  OTHER
+}
+
+// Ledger transaction types taken verbatim from the build doc's inventory
+// ledger spec (§25) — kept distinct from the generic LedgerTxnType because
+// this ledger carries a grade dimension the generic engine doesn't have.
+enum GradeLedgerTxnType {
+  PROCUREMENT
+  SORTING
+  WASTAGE
+  SALE
+  DISPATCH
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  RETURN
+  DISPOSAL
+}
+
+// Current balance per item + warehouse + grade. Item.currentStock (generic
+// engine) remains the source of truth for the vegetable's total; this table
+// is the grade-wise breakdown of that same total.
+model ItemGradeStock {
+  id          String    @id @default(cuid())
+  itemId      String
+  item        Item      @relation(fields: [itemId], references: [id])
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  grade       Grade
+  quantity    Decimal   @default(0) @db.Decimal(14, 3)
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([itemId, warehouseId, grade])
+  @@index([itemId])
+  @@index([warehouseId])
+}
+
+model GradeLedger {
+  id              String             @id @default(cuid())
+  itemId          String
+  item            Item               @relation(fields: [itemId], references: [id])
+  warehouseId     String
+  warehouse       Warehouse          @relation(fields: [warehouseId], references: [id])
+  grade           Grade
+  transactionType GradeLedgerTxnType
+  quantity        Decimal            @db.Decimal(14, 3)
+  beforeQty       Decimal            @db.Decimal(14, 3)
+  afterQty        Decimal            @db.Decimal(14, 3)
+  referenceType   String
+  referenceId     String
+  referenceNumber String
+  batchId         String?
+  batch           ProcurementBatch?  @relation(fields: [batchId], references: [id])
+  userId          String
+  user            User               @relation(fields: [userId], references: [id])
+  reason          String?
+  createdAt       DateTime           @default(now())
+
+  @@index([itemId])
+  @@index([warehouseId])
+  @@index([referenceType, referenceId])
+  @@index([createdAt])
+}
+
+// ==================================================
+// SALES ORDERS
+// ==================================================
+
+enum SalesOrderStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  READY_FOR_DISPATCH
+  PARTIALLY_FULFILLED
+  COMPLETED
+  CANCELLED
+}
+
+model SalesOrder {
+  id           String           @id @default(cuid())
+  soNumber     String           @unique
+  customerId   String
+  customer     Customer         @relation(fields: [customerId], references: [id])
+  orderDate    DateTime
+  deliveryDate DateTime?
+  priority     String?
+  createdById  String
+  createdBy    User             @relation("SalesOrderCreatedBy", fields: [createdById], references: [id])
+  approvedById String?
+  approvedBy   User?            @relation("SalesOrderApprovedBy", fields: [approvedById], references: [id])
+  totalAmount  Decimal          @default(0) @db.Decimal(14, 2)
+  remarks      String?
+  status       SalesOrderStatus @default(DRAFT)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  items       SalesOrderItem[]
+  trips       Trip[]
+  attachments Attachment[]     @relation("SalesOrderAttachments")
+  approvals   Approval[]       @relation("SalesOrderApprovals")
+
+  @@index([status])
+  @@index([customerId])
+}
+
+model SalesOrderItem {
+  id           String     @id @default(cuid())
+  salesOrderId String
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  itemId       String
+  item         Item       @relation(fields: [itemId], references: [id])
+  grade        Grade      @default(GRADE_A)
+  quantity     Decimal    @db.Decimal(14, 3)
+  rate         Decimal    @db.Decimal(14, 2)
+  total        Decimal    @db.Decimal(14, 2)
+  fulfilledQty Decimal    @default(0) @db.Decimal(14, 3)
+
+  tripItems TripItem[]
+
+  @@index([salesOrderId])
+  @@index([itemId])
+}
+
+// ==================================================
+// ROUTES / DISPATCH / TRIPS
+// (Dispatch and Trip are the same real-world event — see plan decision 3;
+// "/dispatch" is a filtered list view over Trip, not a separate table.)
+// ==================================================
+
+enum RouteStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model RouteCluster {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String?
+  status      RouteStatus @default(ACTIVE)
+  createdAt   DateTime    @default(now())
+
+  routes Route[]
+}
+
+model Route {
+  id                   String        @id @default(cuid())
+  routeNumber          String        @unique
+  name                 String
+  startLocation        String
+  destination          String
+  routeClusterId       String?
+  routeCluster         RouteCluster? @relation(fields: [routeClusterId], references: [id])
+  estimatedDistanceKm  Decimal?      @db.Decimal(8, 2)
+  estimatedTimeMinutes Int?
+  status               RouteStatus   @default(ACTIVE)
+  createdAt            DateTime      @default(now())
+
+  trips Trip[]
+
+  @@index([status])
+}
+
+enum TripStatus {
+  CREATED
+  APPROVED
+  LOADING
+  LOADED
+  DISPATCHED
+  DELIVERED
+  RETURNED
+  CANCELLED
+}
+
+model Trip {
+  id                        String      @id @default(cuid())
+  tripNumber                String      @unique
+  salesOrderId              String?
+  salesOrder                SalesOrder? @relation(fields: [salesOrderId], references: [id])
+  customerId                String
+  customer                  Customer    @relation(fields: [customerId], references: [id])
+  routeId                   String?
+  route                     Route?      @relation(fields: [routeId], references: [id])
+  vehicleId                 String
+  vehicle                   Vehicle     @relation(fields: [vehicleId], references: [id])
+  driverId                  String
+  driver                    Driver      @relation(fields: [driverId], references: [id])
+  loadingStaffId            String?
+  loadingStaff              User?       @relation("TripLoadingStaff", fields: [loadingStaffId], references: [id])
+  departureAt               DateTime?
+  expectedArrivalAt         DateTime?
+  deliveredAt               DateTime?
+  returnedAt                DateTime?
+  // Set when a hard dispatch-eligibility check (vehicle/driver/stock) is
+  // bypassed by an authorized user; the override itself is always audit-logged.
+  eligibilityOverride       Boolean     @default(false)
+  eligibilityOverrideReason String?
+  remarks                   String?
+  status                    TripStatus  @default(CREATED)
+  createdById               String
+  createdBy                 User        @relation("TripCreatedBy", fields: [createdById], references: [id])
+  createdAt                 DateTime    @default(now())
+  updatedAt                 DateTime    @updatedAt
+
+  items        TripItem[]
+  crateReturns CrateReturn[]
+
+  @@index([status])
+  @@index([vehicleId])
+  @@index([driverId])
+}
+
+model TripItem {
+  id               String          @id @default(cuid())
+  tripId           String
+  trip             Trip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  salesOrderItemId String?
+  salesOrderItem   SalesOrderItem? @relation(fields: [salesOrderItemId], references: [id])
+  itemId           String
+  item             Item            @relation(fields: [itemId], references: [id])
+  grade            Grade           @default(GRADE_A)
+  quantity         Decimal         @db.Decimal(14, 3)
+  cratesCount      Int?
+
+  @@index([tripId])
+}
+
+// ==================================================
+// CRATES
+// ==================================================
+
+enum CrateStatus {
+  AVAILABLE
+  LOADED
+  WITH_CUSTOMER
+  RETURNED
+  DAMAGED
+  MISSING
+  CLEANING
+  READY
+}
+
+model Crate {
+  id              String      @id @default(cuid())
+  crateCode       String      @unique
+  crateType       String
+  capacity        String?
+  status          CrateStatus @default(AVAILABLE)
+  currentLocation String?
+  customerId      String?
+  customer        Customer?   @relation(fields: [customerId], references: [id])
+  condition       String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  cleanings Cleaning[]
+
+  @@index([status])
+}
+
+// Aggregate per-trip crate return record (§46). Movement/status history for
+// an individual crate lives on Crate.status + AuditLog — see plan decision 5.
+model CrateReturn {
+  id               String    @id @default(cuid())
+  returnNumber     String    @unique
+  tripId           String
+  trip             Trip      @relation(fields: [tripId], references: [id])
+  customerId       String
+  customer         Customer  @relation(fields: [customerId], references: [id])
+  vehicleId        String?
+  vehicle          Vehicle?  @relation(fields: [vehicleId], references: [id])
+  driverId         String?
+  driver           Driver?   @relation(fields: [driverId], references: [id])
+  cratesDispatched Int
+  cratesReturned   Int       @default(0)
+  cratesDamaged    Int       @default(0)
+  cratesMissing    Int       @default(0)
+  returnDate       DateTime?
+  condition        String?
+  remarks          String?
+  createdAt        DateTime  @default(now())
+
+  @@index([tripId])
+  @@index([customerId])
+}
+
+// ==================================================
+// OPERATIONS: CLEANING / SHIFT / HANDOVER / NEXT-DAY PREP
+// ==================================================
+
+enum CleaningStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Cleaning {
+  id           String         @id @default(cuid())
+  entityType   String // "VEHICLE" | "CRATE" | "LOCATION"
+  vehicleId    String?
+  vehicle      Vehicle?       @relation(fields: [vehicleId], references: [id])
+  crateId      String?
+  crate        Crate?         @relation(fields: [crateId], references: [id])
+  locationText String?
+  cleaningType String?
+  startTime    DateTime?
+  endTime      DateTime?
+  staffId      String?
+  staff        User?          @relation(fields: [staffId], references: [id])
+  status       CleaningStatus @default(PENDING)
+  remarks      String?
+  createdAt    DateTime       @default(now())
+
+  @@index([status])
+}
+
+enum ShiftStatus {
+  ACTIVE
+  CLOSED
+}
+
+model Shift {
+  id           String      @id @default(cuid())
+  shiftName    String
+  date         DateTime
+  startTime    DateTime
+  endTime      DateTime
+  supervisorId String?
+  supervisor   User?       @relation("ShiftSupervisor", fields: [supervisorId], references: [id])
+  status       ShiftStatus @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+
+  employees   Employee[]
+  labourers   Labour[]
+  attendances Attendance[]
+  handovers   ShiftHandover[]
+
+  @@index([status])
+  @@index([date])
+}
+
+// Only what is actually entered at handover time is stored; "pending
+// procurement/sorting/dispatch, vehicles inside" etc. are computed live from
+// the real tables when the handover page renders — see plan decision 6.
+model ShiftHandover {
+  id                   String   @id @default(cuid())
+  shiftId              String
+  shift                Shift    @relation(fields: [shiftId], references: [id])
+  previousSupervisorId String?
+  previousSupervisor   User?    @relation("HandoverPreviousSupervisor", fields: [previousSupervisorId], references: [id])
+  newSupervisorId      String?
+  newSupervisor        User?    @relation("HandoverNewSupervisor", fields: [newSupervisorId], references: [id])
+  handoverAt           DateTime @default(now())
+  stockIssuesNote      String?
+  cleaningStatusNote   String?
+  crateStatusNote      String?
+  remarks              String?
+  createdAt            DateTime @default(now())
+
+  @@index([shiftId])
+}
+
+enum ChecklistStatus {
+  PENDING
+  ASSIGNED
+  COMPLETE
+  REOPENED
+}
+
+model NextDayPreparation {
+  id          String   @id @default(cuid())
+  date        DateTime @unique
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  remarks     String?
+  createdAt   DateTime @default(now())
+
+  checklistItems NextDayChecklistItem[]
+}
+
+model NextDayChecklistItem {
+  id            String             @id @default(cuid())
+  preparationId String
+  preparation   NextDayPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
+  label         String
+  status        ChecklistStatus    @default(PENDING)
+  assignedToId  String?
+  assignedTo    User?              @relation(fields: [assignedToId], references: [id])
+  remark        String?
+  updatedAt     DateTime           @updatedAt
+
+  @@index([preparationId])
+}
+
+// ==================================================
+// WORKFORCE: EMPLOYEES / LABOUR / ATTENDANCE / SALARY
+// Plain HR records, independent of login Users — see plan decision 7.
+// ==================================================
+
+model Employee {
+  id           String       @id @default(cuid())
+  employeeCode String       @unique
+  name         String
+  mobile       String
+  department   String?
+  roleTitle    String?
+  joiningDate  DateTime?
+  shiftId      String?
+  shift        Shift?       @relation(fields: [shiftId], references: [id])
+  status       PersonStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  attachments Attachment[] @relation("EmployeeAttachments")
+  attendances Attendance[]
+  salaries    Salary[]
+
+  @@index([status])
+}
+
+model Labour {
+  id         String       @id @default(cuid())
+  labourCode String       @unique
+  name       String
+  mobile     String
+  workType   String?
+  dailyWage  Decimal      @db.Decimal(10, 2)
+  shiftId    String?
+  shift      Shift?       @relation(fields: [shiftId], references: [id])
+  status     PersonStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  attendances Attendance[]
+  salaries    Salary[]
+
+  @@index([status])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+}
+
+model Attendance {
+  id            String           @id @default(cuid())
+  date          DateTime
+  employeeId    String?
+  employee      Employee?        @relation(fields: [employeeId], references: [id])
+  labourId      String?
+  labour        Labour?          @relation(fields: [labourId], references: [id])
+  shiftId       String?
+  shift         Shift?           @relation(fields: [shiftId], references: [id])
+  status        AttendanceStatus
+  overtimeHours Decimal?         @db.Decimal(5, 2)
+  remarks       String?
+  createdAt     DateTime         @default(now())
+
+  @@unique([date, employeeId])
+  @@unique([date, labourId])
+  @@index([date])
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+}
+
+model Salary {
+  id             String        @id @default(cuid())
+  employeeId     String?
+  employee       Employee?     @relation(fields: [employeeId], references: [id])
+  labourId       String?
+  labour         Labour?       @relation(fields: [labourId], references: [id])
+  periodStart    DateTime
+  periodEnd      DateTime
+  earnings       Decimal       @db.Decimal(12, 2)
+  overtimeAmount Decimal       @default(0) @db.Decimal(12, 2)
+  advances       Decimal       @default(0) @db.Decimal(12, 2)
+  deductions     Decimal       @default(0) @db.Decimal(12, 2)
+  netSalary      Decimal       @db.Decimal(12, 2)
+  paymentStatus  PaymentStatus @default(PENDING)
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([employeeId])
+  @@index([labourId])
+  @@index([paymentStatus])
 }

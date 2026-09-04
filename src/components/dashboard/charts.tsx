@@ -13,8 +13,8 @@ import {
   Bar,
 } from "recharts";
 
-const gridColor = "var(--color-border)";
-const axisColor = "var(--color-muted-foreground)";
+const gridColor = "#e5e7eb";
+const axisColor = "#6b7280";
 
 export function InwardOutwardTrendChart({
   data,
@@ -26,12 +26,12 @@ export function InwardOutwardTrendChart({
       <AreaChart data={data} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}>
         <defs>
           <linearGradient id="fillInward" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="var(--color-chart-1)" stopOpacity={0.35} />
-            <stop offset="95%" stopColor="var(--color-chart-1)" stopOpacity={0.02} />
+            <stop offset="5%" stopColor="#2a78d6" stopOpacity={0.35} />
+            <stop offset="95%" stopColor="#2a78d6" stopOpacity={0.02} />
           </linearGradient>
           <linearGradient id="fillOutward" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="var(--color-chart-2)" stopOpacity={0.35} />
-            <stop offset="95%" stopColor="var(--color-chart-2)" stopOpacity={0.02} />
+            <stop offset="5%" stopColor="#eb6834" stopOpacity={0.35} />
+            <stop offset="95%" stopColor="#eb6834" stopOpacity={0.02} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
@@ -39,8 +39,8 @@ export function InwardOutwardTrendChart({
         <YAxis tick={{ fontSize: 11, fill: axisColor }} tickLine={false} axisLine={false} width={36} />
         <Tooltip
           contentStyle={{
-            background: "var(--color-popover)",
-            border: "1px solid var(--color-border)",
+            background: "#ffffff",
+            border: "1px solid #e5e7eb",
             borderRadius: 8,
             fontSize: 12,
           }}
@@ -50,7 +50,7 @@ export function InwardOutwardTrendChart({
           type="monotone"
           dataKey="inward"
           name="Inward"
-          stroke="var(--color-chart-1)"
+          stroke="#2a78d6"
           fill="url(#fillInward)"
           strokeWidth={2}
         />
@@ -58,10 +58,46 @@ export function InwardOutwardTrendChart({
           type="monotone"
           dataKey="outward"
           name="Outward"
-          stroke="var(--color-chart-2)"
+          stroke="#eb6834"
           fill="url(#fillOutward)"
           strokeWidth={2}
         />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+export function SingleSeriesTrendChart({
+  data,
+  label,
+  color = "#2a78d6",
+}: {
+  data: { date: string; value: number }[];
+  label: string;
+  color?: string;
+}) {
+  const gradientId = `fill-${label.replace(/[^a-zA-Z0-9]/g, "")}`;
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <AreaChart data={data} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.35} />
+            <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+        <XAxis dataKey="date" tick={{ fontSize: 11, fill: axisColor }} tickLine={false} axisLine={{ stroke: gridColor }} />
+        <YAxis tick={{ fontSize: 11, fill: axisColor }} tickLine={false} axisLine={false} width={36} />
+        <Tooltip
+          contentStyle={{
+            background: "#ffffff",
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+        />
+        <Area type="monotone" dataKey="value" name={label} stroke={color} fill={`url(#${gradientId})`} strokeWidth={2} />
       </AreaChart>
     </ResponsiveContainer>
   );
@@ -77,19 +113,19 @@ export function StockByDimensionChart({ data }: { data: { name: string; value: n
           type="category"
           dataKey="name"
           width={110}
-          tick={{ fontSize: 12, fill: "var(--color-foreground)" }}
+          tick={{ fontSize: 12, fill: "#374151" }}
           tickLine={false}
           axisLine={false}
         />
         <Tooltip
           contentStyle={{
-            background: "var(--color-popover)",
-            border: "1px solid var(--color-border)",
+            background: "#ffffff",
+            border: "1px solid #e5e7eb",
             borderRadius: 8,
             fontSize: 12,
           }}
         />
-        <Bar dataKey="value" fill="var(--color-chart-1)" radius={[0, 4, 4, 0]} maxBarSize={22} />
+        <Bar dataKey="value" fill="#2a78d6" radius={[0, 4, 4, 0]} maxBarSize={22} />
       </BarChart>
     </ResponsiveContainer>
   );

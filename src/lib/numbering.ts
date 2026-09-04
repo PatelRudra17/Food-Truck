@@ -10,6 +10,12 @@ const PREFIXES = {
   PURCHASE_ORDER: "PO",
   GATE_ENTRY: "GTI",
   GATE_EXIT: "GTO",
+  PROCUREMENT: "PROC",
+  PROCUREMENT_BATCH: "BAT",
+  SALES_ORDER: "SO",
+  TRIP: "TRIP",
+  CRATE_RETURN: "CRT",
+  WASTAGE: "WST",
 } as const;
 
 export type NumberingDoc = keyof typeof PREFIXES;

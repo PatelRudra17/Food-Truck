@@ -37,6 +37,14 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local dev process logs/pid files
+*.pid
+cloudflare-tunnel.*.log
+localtunnel.*.log
+next-build.*.log
+next-dev*.log
+next-start*.log
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

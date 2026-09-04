@@ -26,6 +26,19 @@ export const RESOURCES = [
   "REPORT",
   "NOTIFICATION",
   "DOCUMENT",
+  "PROCUREMENT",
+  "SORTING",
+  "WASTAGE",
+  "CUSTOMER",
+  "SALES_ORDER",
+  "ROUTE",
+  "TRIP",
+  "CRATE",
+  "OPERATIONS",
+  "EMPLOYEE",
+  "LABOUR",
+  "ATTENDANCE",
+  "PAYROLL",
 ] as const;
 
 export const ACTIONS = [
@@ -75,6 +88,7 @@ export const ROLE_NAMES = [
   "Gate Operator",
   "Auditor",
   "Management",
+  "HR / Payroll",
 ] as const;
 
 export type RoleName = (typeof ROLE_NAMES)[number];
@@ -98,6 +112,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleName, PermissionCode[]> = {
     ...crud("NOTIFICATION", ["VIEW"]),
     ...crud("DOCUMENT", ["VIEW", "CREATE", "DOWNLOAD_DOCUMENT"]),
     ...crud("DASHBOARD", ["VIEW"]),
+    ...crud("PROCUREMENT"),
+    ...crud("SORTING"),
+    ...crud("WASTAGE"),
+    ...crud("CUSTOMER"),
+    ...crud("SALES_ORDER"),
+    ...crud("ROUTE"),
+    ...crud("TRIP"),
+    ...crud("CRATE"),
+    ...crud("OPERATIONS"),
     "GLOBAL_SEARCH",
   ],
 
@@ -112,6 +135,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleName, PermissionCode[]> = {
     ...crud("INVENTORY_LEDGER", ["VIEW"]),
     ...crud("DOCUMENT", ["VIEW", "CREATE"]),
     ...crud("DASHBOARD", ["VIEW"]),
+    ...crud("PROCUREMENT", ["VIEW", "CREATE", "EDIT"]),
+    ...crud("SORTING", ["VIEW", "CREATE", "EDIT"]),
+    ...crud("WASTAGE", ["VIEW", "CREATE", "EDIT"]),
+    ...crud("SALES_ORDER", ["VIEW", "CREATE", "EDIT"]),
+    ...crud("CUSTOMER", ["VIEW"]),
+    ...crud("ROUTE", ["VIEW"]),
+    ...crud("TRIP", ["VIEW"]),
+    ...crud("CRATE", ["VIEW"]),
+    ...crud("OPERATIONS", ["VIEW"]),
     "GLOBAL_SEARCH",
   ],
 
@@ -126,6 +158,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleName, PermissionCode[]> = {
     ...crud("REPORT", ["VIEW", "EXPORT", "PRINT"]),
     ...crud("DOCUMENT", ["VIEW", "CREATE", "DOWNLOAD_DOCUMENT"]),
     ...crud("DASHBOARD", ["VIEW"]),
+    ...crud("TRIP", ["VIEW", "CREATE", "EDIT"]),
+    ...crud("ROUTE", ["VIEW", "CREATE", "EDIT"]),
+    ...crud("CRATE", ["VIEW", "CREATE", "EDIT"]),
+    ...crud("OPERATIONS", ["VIEW"]),
     "VIEW_SENSITIVE_DRIVER_DOCUMENTS",
     "OVERRIDE_MAINTENANCE_BLOCK",
     "GLOBAL_SEARCH",
@@ -136,6 +172,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleName, PermissionCode[]> = {
     ...crud("VEHICLE", ["VIEW"]),
     ...crud("DRIVER", ["VIEW"]),
     ...crud("DASHBOARD", ["VIEW"]),
+    ...crud("PROCUREMENT", ["VIEW"]),
   ],
 
   Auditor: [
@@ -146,6 +183,16 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleName, PermissionCode[]> = {
 
   Management: [
     ...RESOURCES.flatMap((r) => crud(r, ["VIEW", "EXPORT", "PRINT"])),
+    "GLOBAL_SEARCH",
+  ],
+
+  "HR / Payroll": [
+    ...crud("EMPLOYEE"),
+    ...crud("LABOUR"),
+    ...crud("ATTENDANCE"),
+    ...crud("PAYROLL"),
+    ...crud("DASHBOARD", ["VIEW"]),
+    ...crud("REPORT", ["VIEW", "EXPORT", "PRINT"]),
     "GLOBAL_SEARCH",
   ],
 };
