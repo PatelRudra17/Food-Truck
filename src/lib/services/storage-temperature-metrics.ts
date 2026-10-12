@@ -1,4 +1,5 @@
 import "server-only";
+import { dateParam } from "@/lib/validators/common";
 import { prisma } from "@/lib/prisma";
 import { Prisma, TemperatureStatus } from "@prisma/client";
 import type { TemperatureLogFilters } from "@/lib/validators/storage-temperature";
@@ -27,10 +28,12 @@ export function buildTemperatureLogWhere(filters: TemperatureLogFilters): Prisma
   if (filters.locationId) where.locationId = filters.locationId;
   if (filters.itemId) where.itemId = filters.itemId;
   if (filters.batchNumber) where.batchNumber = { contains: filters.batchNumber, mode: "insensitive" };
-  if (filters.dateFrom || filters.dateTo) {
+  const dateFrom = dateParam(filters.dateFrom);
+  const dateTo = dateParam(filters.dateTo);
+  if (dateFrom || dateTo) {
     where.recordedAt = {
-      ...(filters.dateFrom ? { gte: new Date(filters.dateFrom) } : {}),
-      ...(filters.dateTo ? { lte: new Date(`${filters.dateTo}T23:59:59.999`) } : {}),
+      ...(dateFrom ? { gte: new Date(`${dateFrom}T00:00:00`) } : {}),
+      ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59.999`) } : {}),
     };
   }
   return where;

@@ -9,6 +9,17 @@ import { actionError } from "@/lib/validators/common";
 import { temperatureLogSchema, temperatureSettingsSchema } from "@/lib/validators/storage-temperature";
 import { computeTemperatureStatus } from "@/lib/services/temperature";
 import { notifyRoleByName } from "@/lib/services/notifications";
+import type { z } from "zod";
+
+/** Returns the first validation message (plus per-field messages) instead of raw Zod JSON. */
+function validationFailure(error: z.ZodError): ActionResult<never> {
+  const fieldErrors: Record<string, string[]> = {};
+  for (const issue of error.issues) {
+    const key = issue.path.join(".") || "_form";
+    (fieldErrors[key] ??= []).push(issue.message);
+  }
+  return { ok: false, error: error.issues[0]?.message ?? "Please check the form and try again.", fieldErrors };
+}
 
 /**
  * Records one manual temperature reading, computes its NORMAL/WARNING/CRITICAL
@@ -21,7 +32,9 @@ export async function recordTemperatureLogAction(
 ): Promise<ActionResult<{ id: string; status: string }>> {
   try {
     const user = await requirePermission("STORAGE_TEMPERATURE_CREATE");
-    const data = temperatureLogSchema.parse(input);
+    const parsed = temperatureLogSchema.safeParse(input);
+    if (!parsed.success) return validationFailure(parsed.error);
+    const data = parsed.data;
 
     const item = await prisma.item.findUnique({ where: { id: data.itemId } });
     if (!item) throw new Error("Item not found.");
@@ -94,7 +107,9 @@ export async function updateItemTemperatureSettingsAction(
 ): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("ITEM_EDIT");
-    const data = temperatureSettingsSchema.parse(input);
+    const parsed = temperatureSettingsSchema.safeParse(input);
+    if (!parsed.success) return validationFailure(parsed.error);
+    const data = parsed.data;
 
     const existing = await prisma.item.findUnique({ where: { id: itemId } });
     if (!existing) throw new Error("Item not found.");

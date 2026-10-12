@@ -18,3 +18,10 @@ export const fuelEntrySchema = z.object({
 export type FuelEntryInput = z.infer<typeof fuelEntrySchema>;
 
 export const FUEL_TYPES = ["Diesel", "Petrol", "CNG", "Electric", "Other"] as const;
+
+/**
+ * Trips a fuel entry may be linked to: ones that have actually been on the road.
+ * FuelEntry.tripId stores the linked Trip's id (validated server-side to exist
+ * and to belong to the entry's vehicle); screens/exports show the trip number.
+ */
+export const FUEL_LINKABLE_TRIP_STATUSES = ["DISPATCHED", "DELIVERED", "RETURNED"] as const;

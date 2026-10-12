@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
@@ -19,23 +18,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { payrollSchema, PAYROLL_PERSON_TYPES, type PayrollInput } from "@/lib/validators/payroll";
-import { createPayrollAction, getSuggestedLabourEarningsAction } from "@/lib/actions/payroll-actions";
+import { createPayrollAction, updatePayrollAction } from "@/lib/actions/payroll-actions";
 
 type EmployeeOption = { id: string; name: string; employeeCode: string };
 type LabourOption = { id: string; name: string; labourCode: string; dailyWage: number };
 
-type PayrollFormInput = z.input<typeof payrollSchema>;
+export type PayrollFormInput = z.input<typeof payrollSchema>;
 
 export function PayrollForm({
   employeeOptions,
   labourOptions,
+  salaryId,
+  initialValues,
 }: {
   employeeOptions: EmployeeOption[];
   labourOptions: LabourOption[];
+  /** When set, the form edits this (pending) salary record instead of creating one. */
+  salaryId?: string;
+  initialValues?: PayrollFormInput;
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [suggestion, setSuggestion] = useState<{ presentDays: number; dailyWage: number } | null>(null);
+  const isEdit = !!salaryId;
 
   const {
     register,
@@ -45,7 +48,7 @@ export function PayrollForm({
     formState: { errors, isSubmitting },
   } = useForm<PayrollFormInput, unknown, PayrollInput>({
     resolver: zodResolver(payrollSchema),
-    defaultValues: {
+    defaultValues: initialValues ?? {
       personType: "LABOUR",
       periodStart: format(new Date(), "yyyy-MM-01"),
       periodEnd: format(new Date(), "yyyy-MM-dd"),
@@ -59,35 +62,16 @@ export function PayrollForm({
   const personType = watch("personType");
   const employeeId = watch("employeeId");
   const labourId = watch("labourId");
-  const periodStart = watch("periodStart");
-  const periodEnd = watch("periodEnd");
   const earnings = Number(watch("earnings")) || 0;
   const overtimeAmount = Number(watch("overtimeAmount")) || 0;
   const advances = Number(watch("advances")) || 0;
   const deductions = Number(watch("deductions")) || 0;
   const netSalary = earnings + overtimeAmount - advances - deductions;
 
-  function handleComputeSuggested() {
-    if (!labourId || !periodStart || !periodEnd) {
-      toast.error("Select a labour and both period dates first.");
-      return;
-    }
-    startTransition(async () => {
-      const result = await getSuggestedLabourEarningsAction(labourId, String(periodStart), String(periodEnd));
-      if (result.ok) {
-        setValue("earnings", result.data.earnings);
-        setSuggestion({ presentDays: result.data.presentDays, dailyWage: result.data.dailyWage });
-        toast.success("Suggested earnings applied — adjust if needed before saving.");
-      } else {
-        toast.error(result.error);
-      }
-    });
-  }
-
   async function onSubmit(values: PayrollInput) {
-    const result = await createPayrollAction(values);
+    const result = salaryId ? await updatePayrollAction(salaryId, values) : await createPayrollAction(values);
     if (result.ok) {
-      toast.success("Salary record created.");
+      toast.success(isEdit ? "Salary record updated." : "Salary record created.");
       router.push(`/payroll/${result.data.id}`);
     } else {
       toast.error(result.error);
@@ -100,13 +84,14 @@ export function PayrollForm({
         <CardContent className="grid grid-cols-1 gap-3 pt-4 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="personType">Person Type *</Label>
+            {/* The person on an existing record can't change; only amounts and period are editable. */}
             <Select
               value={personType}
+              disabled={isEdit}
               onValueChange={(v) => {
                 setValue("personType", v as PayrollInput["personType"]);
                 setValue("employeeId", "");
                 setValue("labourId", "");
-                setSuggestion(null);
               }}
             >
               <SelectTrigger id="personType" className="w-full">
@@ -125,7 +110,7 @@ export function PayrollForm({
           <div className="space-y-1">
             <Label htmlFor="payroll-person">Person *</Label>
             {personType === "EMPLOYEE" ? (
-              <Select value={employeeId || ""} onValueChange={(v) => setValue("employeeId", v)}>
+              <Select value={employeeId || ""} disabled={isEdit} onValueChange={(v) => setValue("employeeId", v)}>
                 <SelectTrigger id="payroll-person" className="w-full">
                   <SelectValue placeholder="Select employee" />
                 </SelectTrigger>
@@ -138,13 +123,7 @@ export function PayrollForm({
                 </SelectContent>
               </Select>
             ) : (
-              <Select
-                value={labourId || ""}
-                onValueChange={(v) => {
-                  setValue("labourId", v);
-                  setSuggestion(null);
-                }}
-              >
+              <Select value={labourId || ""} disabled={isEdit} onValueChange={(v) => setValue("labourId", v)}>
                 <SelectTrigger id="payroll-person" className="w-full">
                   <SelectValue placeholder="Select labour" />
                 </SelectTrigger>
@@ -172,20 +151,6 @@ export function PayrollForm({
             {errors.periodEnd && <p className="text-xs text-destructive">{errors.periodEnd.message}</p>}
           </div>
 
-          {personType === "LABOUR" && (
-            <div className="space-y-1 sm:col-span-2">
-              <Button type="button" variant="outline" size="sm" onClick={handleComputeSuggested} disabled={isPending}>
-                {isPending ? "Computing..." : "Compute Suggested Earnings"}
-              </Button>
-              {suggestion && (
-                <p className="text-xs text-muted-foreground">
-                  {suggestion.presentDays} present day(s) x {suggestion.dailyWage.toLocaleString()} daily wage. Adjust
-                  the earnings figure below if needed before saving.
-                </p>
-              )}
-            </div>
-          )}
-
           <div className="space-y-1">
             <Label htmlFor="earnings">Earnings *</Label>
             <Input id="earnings" type="number" step="0.01" min="0" {...register("earnings")} />
@@ -205,6 +170,7 @@ export function PayrollForm({
           <div className="space-y-1">
             <Label htmlFor="deductions">Deductions</Label>
             <Input id="deductions" type="number" step="0.01" min="0" {...register("deductions")} />
+            {errors.deductions && <p className="text-xs text-destructive">{errors.deductions.message}</p>}
           </div>
 
           <div className="sm:col-span-2 rounded-md border bg-muted/50 p-3">
@@ -215,7 +181,7 @@ export function PayrollForm({
       </Card>
 
       <Button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "Saving..." : "Create Salary Record"}
+        {isSubmitting ? "Saving..." : isEdit ? "Save Changes" : "Create Salary Record"}
       </Button>
     </form>
   );

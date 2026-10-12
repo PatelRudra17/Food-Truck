@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import type { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/auth/guard";
 import { prisma } from "@/lib/prisma";
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
       ),
     });
   } catch (error) {
+    unstable_rethrow(error); // let a 403 from requirePermission through
     const message = error instanceof Error ? error.message : "Export failed.";
     return new Response(JSON.stringify({ error: message }), {
       status: 400,

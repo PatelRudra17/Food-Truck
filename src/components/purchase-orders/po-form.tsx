@@ -15,7 +15,7 @@ import { Field, FieldLabel, FieldError, FieldGroup } from "@/components/ui/field
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { purchaseOrderSchema, type PurchaseOrderInput } from "@/lib/validators/purchase-order";
-import { createPurchaseOrderAction } from "@/lib/actions/purchase-order-actions";
+import { createPurchaseOrderAction, updatePurchaseOrderAction } from "@/lib/actions/purchase-order-actions";
 
 export type SupplierOption = { id: string; companyName: string; code: string };
 export type ItemOption = {
@@ -28,7 +28,7 @@ export type ItemOption = {
   supplierId: string | null;
 };
 
-type POFormInput = z.input<typeof purchaseOrderSchema>;
+export type POFormInput = z.input<typeof purchaseOrderSchema>;
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -37,9 +37,14 @@ function round2(value: number) {
 export function PurchaseOrderForm({
   suppliers,
   items,
+  poId,
+  initialValues,
 }: {
   suppliers: SupplierOption[];
   items: ItemOption[];
+  /** When set, the form edits this (DRAFT) purchase order instead of creating one. */
+  poId?: string;
+  initialValues?: POFormInput;
 }) {
   const router = useRouter();
   const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
@@ -53,7 +58,7 @@ export function PurchaseOrderForm({
     formState: { errors, isSubmitting },
   } = useForm<POFormInput, unknown, PurchaseOrderInput>({
     resolver: zodResolver(purchaseOrderSchema),
-    defaultValues: {
+    defaultValues: initialValues ?? {
       supplierId: "",
       date: new Date().toISOString().slice(0, 10),
       expectedDelivery: "",
@@ -85,9 +90,11 @@ export function PurchaseOrderForm({
   }
 
   async function onSubmit(values: PurchaseOrderInput) {
-    const result = await createPurchaseOrderAction(values);
+    const result = poId
+      ? await updatePurchaseOrderAction(poId, values)
+      : await createPurchaseOrderAction(values);
     if (result.ok) {
-      toast.success("Purchase order created.");
+      toast.success(poId ? "Purchase order updated." : "Purchase order created.");
       router.push(`/purchase-orders/${result.data.id}`);
     } else {
       toast.error(result.error);
@@ -143,7 +150,13 @@ export function PurchaseOrderForm({
 
               <Field>
                 <FieldLabel htmlFor="expectedDelivery">Expected Delivery</FieldLabel>
-                <Input id="expectedDelivery" type="date" {...register("expectedDelivery")} />
+                <Input
+                  id="expectedDelivery"
+                  type="date"
+                  {...register("expectedDelivery")}
+                  aria-invalid={!!errors.expectedDelivery}
+                />
+                <FieldError errors={[errors.expectedDelivery]} />
               </Field>
             </div>
 
@@ -260,11 +273,17 @@ export function PurchaseOrderForm({
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={() => router.push("/purchase-orders")}>
+        <Button type="button" variant="outline" onClick={() => router.push(poId ? `/purchase-orders/${poId}` : "/purchase-orders")}>
           Cancel
         </Button>
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Creating..." : "Create Purchase Order"}
+          {poId
+            ? isSubmitting
+              ? "Saving..."
+              : "Save Changes"
+            : isSubmitting
+              ? "Creating..."
+              : "Create Purchase Order"}
         </Button>
       </div>
     </form>

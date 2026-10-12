@@ -20,7 +20,6 @@ import { createSalesOrderAction, getSalesOrderItemStockAction } from "@/lib/acti
 
 export type CustomerOption = { id: string; name: string; customerCode: string; location: string | null };
 export type ItemOption = { id: string; name: string; sku: string; unit: string; warehouseId: string | null };
-export type WarehouseOption = { id: string; name: string; code: string };
 
 const GRADE_LABELS: Record<string, string> = {
   RAW: "Raw",
@@ -39,20 +38,16 @@ function round2(value: number) {
 export function SalesOrderForm({
   customers,
   items,
-  warehouses,
 }: {
   customers: CustomerOption[];
   items: ItemOption[];
-  warehouses: WarehouseOption[];
 }) {
   const router = useRouter();
   const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
 
-  // Preview-only: which warehouse to check grade stock against. Not part of the
-  // submitted payload — SalesOrder/SalesOrderItem carry no warehouseId in the
-  // schema, so this exists purely to drive the live "Available" column.
-  const [previewWarehouseId, setPreviewWarehouseId] = useState<string>(warehouses[0]?.id ?? "");
+  // Preview-only: each line's "Available" figure is the item's grade stock across all
+  // warehouses, since trip dispatch can draw on any of them.
   const [stockByItemId, setStockByItemId] = useState<Record<string, { grade: string; quantity: number }[]>>({});
 
   const {
@@ -88,19 +83,20 @@ export function SalesOrderForm({
   );
 
   // Fetch grade-wise stock for every distinct item currently on the form
-  // whenever the preview warehouse or the set of chosen items changes.
-  const distinctItemIds = useMemo(
-    () => Array.from(new Set(watchedItems.map((l) => l.itemId).filter(Boolean))),
-    [watchedItems],
-  );
+  // whenever the set of chosen items changes. Recomputed each render: react-hook-form
+  // keeps the same items array when a line's item changes, so memoising on it misses updates.
+  const itemKey = Array.from(new Set(watchedItems.map((l) => l.itemId).filter(Boolean)))
+    .sort()
+    .join(",");
 
   useEffect(() => {
-    if (!previewWarehouseId || distinctItemIds.length === 0) return;
+    const distinctItemIds = itemKey ? itemKey.split(",") : [];
+    if (distinctItemIds.length === 0) return;
     let cancelled = false;
     (async () => {
       const entries = await Promise.all(
         distinctItemIds.map(async (itemId) => {
-          const result = await getSalesOrderItemStockAction(itemId, previewWarehouseId);
+          const result = await getSalesOrderItemStockAction(itemId);
           return [itemId, result.ok ? result.data : []] as const;
         }),
       );
@@ -111,15 +107,10 @@ export function SalesOrderForm({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewWarehouseId, distinctItemIds.join(",")]);
+  }, [itemKey]);
 
   function handleItemSelect(index: number, itemId: string) {
     setValue(`items.${index}.itemId`, itemId);
-    const item = itemsById.get(itemId);
-    if (item?.warehouseId && !previewWarehouseId) {
-      setPreviewWarehouseId(item.warehouseId);
-    }
   }
 
   async function onSubmit(values: SalesOrderInput) {
@@ -175,7 +166,13 @@ export function SalesOrderForm({
 
               <Field>
                 <FieldLabel htmlFor="deliveryDate">Delivery Date</FieldLabel>
-                <Input id="deliveryDate" type="date" {...register("deliveryDate")} />
+                <Input
+                  id="deliveryDate"
+                  type="date"
+                  {...register("deliveryDate")}
+                  aria-invalid={!!errors.deliveryDate}
+                />
+                <FieldError errors={[errors.deliveryDate]} />
               </Field>
 
               <Field>
@@ -212,23 +209,6 @@ export function SalesOrderForm({
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Line Items</CardTitle>
-          {warehouses.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Check stock at</span>
-              <Select value={previewWarehouseId} onValueChange={setPreviewWarehouseId}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Select warehouse" />
-                </SelectTrigger>
-                <SelectContent>
-                  {warehouses.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>
-                      {w.name} ({w.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
         </CardHeader>
         <CardContent className="space-y-3">
           {errors.items?.message && <p className="text-sm text-destructive">{errors.items.message}</p>}
@@ -306,7 +286,7 @@ export function SalesOrderForm({
                         />
                       </TableCell>
                       <TableCell className="text-sm">
-                        {line?.itemId && previewWarehouseId ? (
+                        {line?.itemId ? (
                           <span className={insufficient ? "font-medium text-destructive" : "text-muted-foreground"}>
                             {(available ?? 0).toLocaleString()} {item?.unit ?? ""}
                           </span>

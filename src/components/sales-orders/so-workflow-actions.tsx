@@ -17,17 +17,21 @@ export function SalesOrderWorkflowActions({
   status,
   canEdit,
   canApprove,
+  hasActiveTrips = false,
 }: {
   soId: string;
   soNumber: string;
   status: string;
   canEdit: boolean;
   canApprove: boolean;
+  /** A non-cancelled trip references this SO — cancelling is refused server-side then. */
+  hasActiveTrips?: boolean;
 }) {
   const router = useRouter();
   const refresh = () => router.refresh();
 
-  const canCancel = canEdit && ["DRAFT", "PENDING", "APPROVED"].includes(status);
+  const canCancel =
+    canEdit && !hasActiveTrips && ["DRAFT", "PENDING", "APPROVED", "READY_FOR_DISPATCH"].includes(status);
 
   return (
     <div className="flex flex-wrap items-center gap-2">

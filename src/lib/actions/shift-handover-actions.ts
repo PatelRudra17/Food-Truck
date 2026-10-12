@@ -43,6 +43,13 @@ export async function createHandoverAction(input: unknown): Promise<ActionResult
       });
 
       if (data.newSupervisorId) {
+        // The handover transfers supervision of this shift, so the shift row
+        // must reflect the new supervisor too.
+        await tx.shift.update({
+          where: { id: data.shiftId },
+          data: { supervisorId: data.newSupervisorId },
+        });
+
         await notifyUser(tx, {
           userId: data.newSupervisorId,
           type: "SYSTEM_ALERT",
@@ -65,6 +72,7 @@ export async function createHandoverAction(input: unknown): Promise<ActionResult
     });
 
     revalidatePath(HANDOVER_PATH);
+    if (data.newSupervisorId) revalidatePath("/operations/shifts");
     return { ok: true, data: { id: created.id } };
   } catch (error) {
     return actionError(error);
@@ -80,7 +88,6 @@ export type OperationsSnapshot = {
   activeShiftCount: number;
   cratesAvailableCount: number;
   cratesNeedingCleaningCount: number;
-  pendingCleaningCount: number;
 };
 
 /**
@@ -99,7 +106,6 @@ export async function getOperationsSnapshot(): Promise<OperationsSnapshot> {
     activeShiftCount,
     cratesAvailableCount,
     cratesNeedingCleaningCount,
-    pendingCleaningCount,
   ] = await Promise.all([
     prisma.procurement.count({ where: { status: "DRAFT" } }),
     prisma.procurementBatch.count({ where: { status: "PENDING_SORTING" } }),
@@ -109,7 +115,6 @@ export async function getOperationsSnapshot(): Promise<OperationsSnapshot> {
     prisma.shift.count({ where: { status: "ACTIVE" } }),
     prisma.crate.count({ where: { status: "AVAILABLE" } }),
     prisma.crate.count({ where: { status: "CLEANING" } }),
-    prisma.cleaning.count({ where: { status: { in: ["PENDING", "IN_PROGRESS"] } } }),
   ]);
 
   return {
@@ -121,6 +126,5 @@ export async function getOperationsSnapshot(): Promise<OperationsSnapshot> {
     activeShiftCount,
     cratesAvailableCount,
     cratesNeedingCleaningCount,
-    pendingCleaningCount,
   };
 }

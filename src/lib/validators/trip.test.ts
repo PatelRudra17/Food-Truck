@@ -71,3 +71,24 @@ describe("createTripSchema", () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe("createTripSchema overrideEligibility parsing", () => {
+  const base = {
+    customerId: "cust_1",
+    vehicleId: "veh_1",
+    driverId: "drv_1",
+    items: [{ itemId: "item_1", grade: "GRADE_A" as const, quantity: 1 }],
+  };
+
+  it("treats the string \"false\" (and absence) as no override", () => {
+    expect(createTripSchema.parse({ ...base, overrideEligibility: "false" }).overrideEligibility).toBe(false);
+    expect(createTripSchema.parse(base).overrideEligibility).toBe(false);
+  });
+
+  it("treats true / \"true\" / \"on\" / \"1\" as an override", () => {
+    for (const v of [true, "true", "on", "1"]) {
+      const parsed = createTripSchema.parse({ ...base, overrideEligibility: v, eligibilityOverrideReason: "urgent" });
+      expect(parsed.overrideEligibility).toBe(true);
+    }
+  });
+});

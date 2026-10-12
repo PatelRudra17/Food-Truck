@@ -38,8 +38,13 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ id:
   });
   if (!item) notFound();
 
-  const [ledger, gradeStocks, procurementItems, sortings, wastages, salesOrderItems, temperatureLogs] =
+  const [warehouseStocks, ledger, gradeStocks, procurementItems, sortings, wastages, salesOrderItems, temperatureLogs] =
     await Promise.all([
+      prisma.itemWarehouseStock.findMany({
+        where: { itemId: id, quantity: { not: 0 } },
+        include: { warehouse: { select: { id: true, name: true, code: true } } },
+        orderBy: { warehouse: { name: "asc" } },
+      }),
       prisma.inventoryLedger.findMany({
         where: { itemId: id },
         orderBy: { createdAt: "desc" },
@@ -253,10 +258,44 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ id:
       </Card>
         </TabsContent>
 
-        <TabsContent value="inventory" className="mt-4">
+        <TabsContent value="inventory" className="mt-4 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Warehouse &amp; Grade-wise Stock</CardTitle>
+              <CardTitle className="text-base">Stock by Warehouse</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {warehouseStocks.length === 0 ? (
+                <EmptyState icon={ScrollText} title="This item has no stock in any warehouse." />
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Warehouse</TableHead>
+                      <TableHead className="text-right">Quantity</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {warehouseStocks.map((s) => (
+                      <TableRow key={s.warehouseId}>
+                        <TableCell>
+                          <Link href={`/warehouses/${s.warehouse.id}`} className="hover:underline">
+                            {s.warehouse.name} ({s.warehouse.code})
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {Number(s.quantity).toLocaleString()} {item.unit}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Grade-wise Stock (sorted produce)</CardTitle>
             </CardHeader>
             <CardContent>
               {gradeStocks.length === 0 ? (

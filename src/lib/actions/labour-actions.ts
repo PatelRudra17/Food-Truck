@@ -7,11 +7,20 @@ import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
 import { labourSchema } from "@/lib/validators/labour";
+import type { Prisma } from "@prisma/client";
+import { maxCodeSuffix, nextCodeFromMax, retryOnUniqueConflict } from "@/lib/master-codes";
 
-/** Master-data code — sequential, not via the transactional nextDocumentNumber sequence. */
-async function nextLabourCode(): Promise<string> {
-  const count = await prisma.labour.count();
-  return `LAB-${String(count + 1).padStart(3, "0")}`;
+/**
+ * Master-data code — one past the highest existing LAB-### suffix (a count could repeat a
+ * code after deletions). Concurrent creates can still pick the same code; the unique index
+ * rejects the loser and createLabourAction retries.
+ */
+async function nextLabourCode(tx: Prisma.TransactionClient): Promise<string> {
+  const rows = await tx.labour.findMany({
+    where: { labourCode: { startsWith: "LAB-" } },
+    select: { labourCode: true },
+  });
+  return nextCodeFromMax("LAB", maxCodeSuffix("LAB", rows.map((r) => r.labourCode)));
 }
 
 export async function createLabourAction(input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -24,19 +33,23 @@ export async function createLabourAction(input: unknown): Promise<ActionResult<{
       if (!shift) return { ok: false, error: "Selected shift not found." };
     }
 
-    const labourCode = await nextLabourCode();
-
-    const created = await prisma.labour.create({
-      data: {
-        labourCode,
-        name: data.name,
-        mobile: data.mobile,
-        workType: data.workType ?? null,
-        dailyWage: data.dailyWage,
-        shiftId: data.shiftId ?? null,
-        status: data.status,
-      },
-    });
+    // Retry the whole transaction (new code each time) if another create took the same code.
+    const created = await retryOnUniqueConflict("labourCode", () =>
+      prisma.$transaction(async (tx) => {
+        const labourCode = await nextLabourCode(tx);
+        return tx.labour.create({
+          data: {
+            labourCode,
+            name: data.name,
+            mobile: data.mobile,
+            workType: data.workType ?? null,
+            dailyWage: data.dailyWage,
+            shiftId: data.shiftId ?? null,
+            status: data.status,
+          },
+        });
+      }),
+    );
 
     await writeAuditLog({
       userId: user.id,

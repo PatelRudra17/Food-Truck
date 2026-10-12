@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Send, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { Send, CheckCircle2, XCircle, Ban, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import {
@@ -30,6 +31,14 @@ export function PurchaseOrderWorkflowActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {status === "DRAFT" && canEdit && (
+        <Button size="sm" variant="outline" asChild>
+          <Link href={`/purchase-orders/${poId}/edit`}>
+            <Pencil className="h-4 w-4" /> Edit
+          </Link>
+        </Button>
+      )}
+
       {status === "DRAFT" && canEdit && (
         <ConfirmDialog
           trigger={

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, hasPermission } from "@/lib/auth/guard";
 import { getSessionUser } from "@/lib/auth/session";
-import { paginationSchema, paginationMeta } from "@/lib/validators/common";
+import { paginationSchema, paginationMeta, isOneOf } from "@/lib/validators/common";
 import { PageHeader } from "@/components/shared/page-header";
 import { TableSearchInput } from "@/components/shared/table-search-input";
 import { StatusFilterSelect } from "@/components/shared/status-filter-select";
@@ -30,7 +30,7 @@ export default async function RoutesPage({
   const clusterId = typeof params.clusterId === "string" ? params.clusterId : undefined;
 
   const where: Prisma.RouteWhereInput = {
-    ...(status ? { status: status as "ACTIVE" | "INACTIVE" } : {}),
+    ...(isOneOf(status, ["ACTIVE", "INACTIVE"] as const) ? { status } : {}),
     ...(clusterId ? (clusterId === "none" ? { routeClusterId: null } : { routeClusterId: clusterId }) : {}),
     ...(q
       ? {

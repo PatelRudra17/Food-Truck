@@ -134,6 +134,9 @@ export function TripWorkflowActions({
           }
           title="Cancel this trip?"
           description={`${tripNumber} will be marked Cancelled. This cannot be undone.`}
+          confirmLabel="Cancel Trip"
+          successMessage="Trip cancelled."
+          reasonPlaceholder="Explain why this trip is being cancelled..."
           onConfirm={(reason) => cancelTripAction(tripId, { reason })}
           onSuccess={refresh}
         />

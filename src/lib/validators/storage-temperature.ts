@@ -26,15 +26,28 @@ const optionalId = z
   .transform((v) => (v ? v : null))
   .nullable();
 
+// NOTE: union order matters — Number("") and Number(null) are both 0, so the blank
+// branches must come BEFORE z.coerce.number() or a cleared field would save as 0.
 const optionalNumber = z
-  .union([z.coerce.number(), z.literal(""), z.null(), z.undefined()])
+  .union([z.literal(""), z.null(), z.undefined(), z.coerce.number({ error: "Enter a valid number." })])
   .optional()
   .transform((v) => (v === "" || v === null || v === undefined ? null : v));
 
 const optionalInt = z
-  .union([z.coerce.number().int(), z.literal(""), z.null(), z.undefined()])
+  .union([
+    z.literal(""),
+    z.null(),
+    z.undefined(),
+    z.coerce
+      .number({ error: "Enter a valid number." })
+      .int("Shelf life must be a whole number of days.")
+      .min(0, "Shelf life cannot be negative."),
+  ])
   .optional()
   .transform((v) => (v === "" || v === null || v === undefined ? null : v));
+
+export const TEMPERATURE_READING_MIN_C = -50;
+export const TEMPERATURE_READING_MAX_C = 80;
 
 /** Payload for recording one manual temperature reading. */
 export const temperatureLogSchema = z.object({
@@ -42,7 +55,16 @@ export const temperatureLogSchema = z.object({
   batchNumber: optionalText(60),
   warehouseId: z.string().min(1, "Warehouse is required."),
   locationId: optionalId,
-  recordedTempC: z.coerce.number().min(-50, "Out of range.").max(80, "Out of range."),
+  recordedTempC: z.coerce
+    .number({ error: "Enter a valid temperature." })
+    .min(
+      TEMPERATURE_READING_MIN_C,
+      `Temperature must be between ${TEMPERATURE_READING_MIN_C}°C and ${TEMPERATURE_READING_MAX_C}°C.`,
+    )
+    .max(
+      TEMPERATURE_READING_MAX_C,
+      `Temperature must be between ${TEMPERATURE_READING_MIN_C}°C and ${TEMPERATURE_READING_MAX_C}°C.`,
+    ),
   remarks: optionalText(500),
 });
 

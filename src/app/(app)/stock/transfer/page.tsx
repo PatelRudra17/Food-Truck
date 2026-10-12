@@ -3,7 +3,7 @@ import { Plus } from "lucide-react";
 import { TransferStatus, type Prisma } from "@prisma/client";
 import { requirePermission, hasPermission } from "@/lib/auth/guard";
 import { prisma } from "@/lib/prisma";
-import { paginationSchema, paginationMeta } from "@/lib/validators/common";
+import { paginationSchema, paginationMeta, isOneOf } from "@/lib/validators/common";
 import { PageHeader } from "@/components/shared/page-header";
 import { TableSearchInput } from "@/components/shared/table-search-input";
 import { UrlSelectFilter } from "@/components/shared/url-select-filter";
@@ -26,7 +26,7 @@ export default async function StockTransferListPage({
   const destWarehouseId = typeof sp.destWarehouseId === "string" ? sp.destWarehouseId : undefined;
 
   const where: Prisma.StockTransferWhereInput = {
-    ...(status ? { status: status as TransferStatus } : {}),
+    ...(isOneOf(status, Object.values(TransferStatus)) ? { status } : {}),
     ...(sourceWarehouseId ? { sourceWarehouseId } : {}),
     ...(destWarehouseId ? { destWarehouseId } : {}),
     ...(q ? { transferNumber: { contains: q, mode: "insensitive" as const } } : {}),

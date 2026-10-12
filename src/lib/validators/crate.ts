@@ -45,3 +45,8 @@ export const crateStatusChangeSchema = z.object({
   reason: z.string().trim().min(3, "A reason is required.").max(500),
 });
 export type CrateStatusChangeInput = z.infer<typeof crateStatusChangeSchema>;
+
+/** Bulk "Mark cleaned": CLEANING → AVAILABLE. Without `ids`, every crate currently in CLEANING. */
+export const markCratesCleanedSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(1000).optional(),
+});

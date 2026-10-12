@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { RejectDialog } from "@/components/shared/reject-dialog";
 import {
   submitTransferForApprovalAction,
   decideTransferAction,
@@ -65,13 +66,12 @@ export function TransferActions({
             onConfirm={() => decideTransferAction({ id, decision: "APPROVED" })}
             onSuccess={refresh}
           />
-          <ConfirmDialog
+          <RejectDialog
             trigger={<Button variant="outline">Reject</Button>}
             title="Reject this transfer?"
             description="The transfer will be marked rejected. No stock will move."
-            confirmLabel="Reject"
-            destructive
-            onConfirm={() => decideTransferAction({ id, decision: "REJECTED" })}
+            successMessage="Transfer rejected."
+            onConfirm={(comment) => decideTransferAction({ id, decision: "REJECTED", comment })}
             onSuccess={refresh}
           />
         </>

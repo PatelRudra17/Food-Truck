@@ -4,27 +4,63 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
 import { writeAuditLog } from "@/lib/audit";
 import { notifyRoleByName } from "@/lib/services/notifications";
-import { applyStockMovement } from "@/lib/services/inventory";
+import { Prisma } from "@prisma/client";
+import { applyStockMovement, isNegativeStockAllowed } from "@/lib/services/inventory";
 import { nextDocumentNumber } from "@/lib/numbering";
+import { assertSeparateApprover } from "@/lib/services/approval-policy";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
 import { createTransferSchema, transferDecisionSchema } from "@/lib/validators/stock-transfer";
+
+/**
+ * Checks each item's total requested quantity against current stock so an impossible
+ * transfer is caught at create/submit rather than only failing at Dispatch. Stock is
+ * not reserved, so Dispatch still re-validates via applyStockMovement.
+ */
+async function assertTransferQtyAvailable(
+  tx: Prisma.TransactionClient,
+  sourceWarehouseId: string,
+  lines: { itemId: string; quantity: Prisma.Decimal | number }[],
+) {
+  if (await isNegativeStockAllowed(tx)) return;
+
+  const totals = new Map<string, Prisma.Decimal>();
+  for (const line of lines) {
+    totals.set(line.itemId, (totals.get(line.itemId) ?? new Prisma.Decimal(0)).plus(line.quantity));
+  }
+  const items = await tx.item.findMany({
+    where: { id: { in: [...totals.keys()] } },
+    select: {
+      id: true,
+      name: true,
+      sku: true,
+      unit: true,
+      warehouseStocks: { where: { warehouseId: sourceWarehouseId }, select: { quantity: true } },
+    },
+  });
+  const itemMap = new Map(items.map((i) => [i.id, i]));
+
+  for (const [itemId, requested] of totals) {
+    const item = itemMap.get(itemId);
+    if (!item) throw new Error("One of the selected items no longer exists.");
+    // Only stock held in the source warehouse can be transferred out of it.
+    const available = new Prisma.Decimal(item.warehouseStocks[0]?.quantity ?? 0);
+    if (requested.gt(available)) {
+      throw new Error(
+        `Requested quantity for "${item.name}" (${item.sku}) is ${requested.toString()} ${item.unit}, but only ${available.toString()} ${item.unit} is available in the source warehouse.`,
+      );
+    }
+  }
+}
 
 export async function createTransferAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("STOCK_TRANSFER_CREATE");
     const data = createTransferSchema.parse(input);
 
-    const availableItems = await prisma.item.findMany({
-      where: { id: { in: data.items.map((i) => i.itemId) }, warehouseId: data.sourceWarehouseId },
-      select: { id: true },
-    });
-    if (availableItems.length !== new Set(data.items.map((i) => i.itemId)).size) {
-      return { ok: false, error: "One or more selected items are not available in the source warehouse." };
-    }
-
     const transfer = await prisma.$transaction(async (tx) => {
+      await assertTransferQtyAvailable(tx, data.sourceWarehouseId, data.items);
       const transferNumber = await nextDocumentNumber(tx, "STOCK_TRANSFER");
       return tx.stockTransfer.create({
         data: {
@@ -63,10 +99,12 @@ export async function createTransferAction(input: unknown): Promise<ActionResult
 export async function submitTransferForApprovalAction(id: string): Promise<ActionResult> {
   try {
     const user = await requirePermission("STOCK_TRANSFER_CREATE");
-    const transfer = await prisma.stockTransfer.findUnique({ where: { id } });
+    const transfer = await prisma.stockTransfer.findUnique({ where: { id }, include: { items: true } });
     if (!transfer) return { ok: false, error: "Transfer not found." };
 
     await prisma.$transaction(async (tx) => {
+      // Stock may have moved since the draft was created.
+      await assertTransferQtyAvailable(tx, transfer.sourceWarehouseId, transfer.items);
       const updated = await tx.stockTransfer.updateMany({
         where: { id, status: "DRAFT" },
         data: { status: "REQUESTED" },
@@ -110,6 +148,9 @@ export async function decideTransferAction(input: unknown): Promise<ActionResult
   try {
     const user = await requirePermission("STOCK_TRANSFER_APPROVE");
     const { id, decision, comment } = transferDecisionSchema.parse(input);
+    if (decision === "REJECTED" && !comment?.trim()) {
+      return { ok: false, error: "A reason is required to reject a transfer." };
+    }
 
     const transfer = await prisma.stockTransfer.findUnique({
       where: { id },
@@ -118,6 +159,9 @@ export async function decideTransferAction(input: unknown): Promise<ActionResult
     if (!transfer) return { ok: false, error: "Transfer not found." };
 
     await prisma.$transaction(async (tx) => {
+      if (decision === "APPROVED") {
+        await assertSeparateApprover(tx, user.id, [transfer.requestedById, transfer.approvals[0]?.requestedById]);
+      }
       const updated = await tx.stockTransfer.updateMany({
         where: { id, status: "REQUESTED" },
         data: {

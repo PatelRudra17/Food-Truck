@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, hasPermission } from "@/lib/auth/guard";
 import { getSessionUser } from "@/lib/auth/session";
-import { paginationSchema, paginationMeta } from "@/lib/validators/common";
+import { paginationSchema, paginationMeta, isOneOf } from "@/lib/validators/common";
 import { PageHeader } from "@/components/shared/page-header";
 import { TableSearchInput } from "@/components/shared/table-search-input";
 import { StatusFilterSelect } from "@/components/shared/status-filter-select";
@@ -31,7 +31,7 @@ export default async function ProcurementPage({
   const status = typeof params.status === "string" ? params.status : undefined;
 
   const where: Prisma.ProcurementWhereInput = {
-    ...(status ? { status: status as "DRAFT" | "SUBMITTED" | "CANCELLED" } : {}),
+    ...(isOneOf(status, ["DRAFT", "SUBMITTED", "CANCELLED"] as const) ? { status } : {}),
     ...(q
       ? {
           OR: [

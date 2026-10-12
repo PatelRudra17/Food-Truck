@@ -37,7 +37,6 @@ export const RESOURCES = [
   "OPERATIONS",
   "EMPLOYEE",
   "LABOUR",
-  "ATTENDANCE",
   "PAYROLL",
 ] as const;
 
@@ -189,7 +188,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleName, PermissionCode[]> = {
   "HR / Payroll": [
     ...crud("EMPLOYEE"),
     ...crud("LABOUR"),
-    ...crud("ATTENDANCE"),
     ...crud("PAYROLL"),
     ...crud("DASHBOARD", ["VIEW"]),
     ...crud("REPORT", ["VIEW", "EXPORT", "PRINT"]),

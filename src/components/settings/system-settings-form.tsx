@@ -48,6 +48,7 @@ export function SystemSettingsForm({
 
   const dateFormat = watch("dateFormat");
   const allowNegativeStock = watch("allowNegativeStock");
+  const requireSeparateApprover = watch("requireSeparateApprover");
 
   function parseWarningDays() {
     const parsed = warningDaysText
@@ -164,6 +165,24 @@ export function SystemSettingsForm({
               <Switch
                 checked={allowNegativeStock}
                 onCheckedChange={(checked) => setValue("allowNegativeStock", checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium" id="requireSeparateApprover-label">
+                  Require Separate Approver
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Separation of duties: when on, nobody (including Super Admin) can approve a stock inward, outward,
+                  transfer or adjustment that they created or submitted themselves — a different user with the
+                  approve permission must decide it.
+                </p>
+              </div>
+              <Switch
+                aria-labelledby="requireSeparateApprover-label"
+                checked={!!requireSeparateApprover}
+                onCheckedChange={(checked) => setValue("requireSeparateApprover", checked)}
               />
             </div>
 

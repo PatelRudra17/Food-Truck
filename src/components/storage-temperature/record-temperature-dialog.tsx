@@ -20,7 +20,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { TemperatureLogInput } from "@/lib/validators/storage-temperature";
+import {
+  TEMPERATURE_READING_MAX_C,
+  TEMPERATURE_READING_MIN_C,
+  type TemperatureLogInput,
+} from "@/lib/validators/storage-temperature";
 import { recordTemperatureLogAction } from "@/lib/actions/storage-temperature-actions";
 
 export type TempItemOption = {
@@ -40,7 +44,15 @@ const formSchema = z.object({
   batchNumber: z.string().default(""),
   warehouseId: z.string().min(1, "Warehouse is required."),
   locationId: z.string().default(""),
-  recordedTempC: z.string().min(1, "Enter the recorded temperature."),
+  recordedTempC: z
+    .string()
+    .trim()
+    .min(1, "Enter the recorded temperature.")
+    .refine((v) => Number.isFinite(Number(v)), "Enter a valid temperature.")
+    .refine(
+      (v) => Number(v) >= TEMPERATURE_READING_MIN_C && Number(v) <= TEMPERATURE_READING_MAX_C,
+      `Temperature must be between ${TEMPERATURE_READING_MIN_C}°C and ${TEMPERATURE_READING_MAX_C}°C.`,
+    ),
   remarks: z.string().default(""),
 });
 
@@ -187,6 +199,8 @@ export function RecordTemperatureDialog({
                 id="temp-value"
                 type="number"
                 step="0.1"
+                min={TEMPERATURE_READING_MIN_C}
+                max={TEMPERATURE_READING_MAX_C}
                 {...register("recordedTempC")}
                 aria-invalid={!!errors.recordedTempC}
               />

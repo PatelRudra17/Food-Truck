@@ -42,6 +42,7 @@ export default async function ProcurementBatchDetailPage({
             itemName: batch.item.name,
             itemSku: batch.item.sku,
             rawWeight: Number(batch.rawWeight),
+            declaredWeight: Number(batch.procurementItem.weight),
             warehouseName: batch.warehouse.name,
             status: batch.status,
             date: batch.date,

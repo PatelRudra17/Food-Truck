@@ -1,14 +1,12 @@
 import type { Vehicle, Driver, Prisma, PrismaClient, Grade } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkDispatchEligibility } from "@/lib/services/dispatch";
-import { getItemGradeStock } from "@/lib/services/produce-inventory";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
 export type TripEligibilityItem = {
   itemId: string;
   itemName: string;
-  warehouseId: string;
   grade: Grade;
   quantity: number;
 };
@@ -30,9 +28,8 @@ export type TripEligibilityResult = {
  *      `src/lib/services/dispatch.ts` (read-only reference; not modified here).
  *   2. Driver checks — driver.status === "ACTIVE", plus a DRIVING_LICENCE
  *      DriverDocument that is VERIFIED and not expired.
- *   3. Stock checks — for every TripItem about to be created, confirms the
- *      requested quantity of that grade is available via
- *      `getItemGradeStock()` from `src/lib/services/produce-inventory.ts`.
+ *   3. Stock checks — for every item/grade on the trip, confirms the
+ *      requested quantity is available across all warehouses.
  *
  * Reasons are split into `vehicleDriverReasons` and `stockReasons` so the
  * caller can decide separately whether OVERRIDE_MAINTENANCE_BLOCK and/or
@@ -72,13 +69,26 @@ export async function checkTripEligibility(
     }
   }
 
-  const stockReasons: string[] = [];
+  // Trips carry no warehouse: graded produce may sit in any warehouse, so a trip can
+  // draw on the item's total for that grade (dispatch takes it home-warehouse first).
+  // Lines for the same item and grade are added together before checking.
+  const requested = new Map<string, { item: TripEligibilityItem; quantity: number }>();
   for (const item of params.items) {
-    const balances = await getItemGradeStock(item.itemId, item.warehouseId, tx);
-    const available = balances.find((b) => b.grade === item.grade)?.quantity ?? 0;
-    if (available < item.quantity) {
+    const key = `${item.itemId}:${item.grade}`;
+    const entry = requested.get(key) ?? { item, quantity: 0 };
+    entry.quantity += item.quantity;
+    requested.set(key, entry);
+  }
+  const stockReasons: string[] = [];
+  for (const { item, quantity } of requested.values()) {
+    const total = await tx.itemGradeStock.aggregate({
+      where: { itemId: item.itemId, grade: item.grade },
+      _sum: { quantity: true },
+    });
+    const available = Number(total._sum.quantity ?? 0);
+    if (available < quantity) {
       stockReasons.push(
-        `Insufficient ${item.grade.replace("_", " ")} stock for ${item.itemName}: available ${available}, requested ${item.quantity}.`,
+        `Insufficient ${item.grade.replace("_", " ")} stock for ${item.itemName}: available ${available}, requested ${quantity}.`,
       );
     }
   }

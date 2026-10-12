@@ -12,7 +12,15 @@ export const SETTING_KEYS = {
   COMPANY_LOGO_STORAGE_KEY: "COMPANY_LOGO_STORAGE_KEY",
   HIGH_WASTAGE_THRESHOLD_PERCENT: "HIGH_WASTAGE_THRESHOLD_PERCENT",
   CRATE_OVERDUE_THRESHOLD_DAYS: "CRATE_OVERDUE_THRESHOLD_DAYS",
+  REQUIRE_SEPARATE_APPROVER: "REQUIRE_SEPARATE_APPROVER",
 } as const;
+
+export const SELF_APPROVAL_MESSAGE = "You can't approve your own request.";
+
+/** True when the approver is the person who created or submitted the request. */
+export function isSelfApproval(approverId: string, requesterIds: readonly (string | null | undefined)[]): boolean {
+  return requesterIds.some((id) => !!id && id === approverId);
+}
 
 export const systemSettingsSchema = z.object({
   companyName: z.string().trim().min(1, "Company name is required.").max(200),
@@ -25,6 +33,7 @@ export const systemSettingsSchema = z.object({
     .min(1, "Add at least one day threshold."),
   highWastageThresholdPercent: z.coerce.number().min(1).max(100),
   crateOverdueThresholdDays: z.coerce.number().int().min(1).max(90),
+  requireSeparateApprover: z.boolean().default(false),
 });
 
 export type SystemSettingsInput = z.infer<typeof systemSettingsSchema>;

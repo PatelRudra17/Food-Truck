@@ -37,7 +37,7 @@ export function DueVehiclesCard({
                   {v.maintenanceOverride && <StatusBadge status="APPROVED" className="text-xs" />}
                   <span className="text-xs text-muted-foreground">
                     {v.nextServiceDate ? `Due ${format(new Date(v.nextServiceDate), "dd MMM yyyy")}` : ""}
-                    {v.nextServiceKm != null ? ` · ${v.nextServiceKm.toLocaleString()} km` : ""}
+                    {v.nextServiceKm != null ? ` · ${v.nextServiceKm.toLocaleString("en-IN")} km` : ""}
                   </span>
                 </div>
                 {canOverride && (

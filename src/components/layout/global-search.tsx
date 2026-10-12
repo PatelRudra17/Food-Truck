@@ -40,8 +40,12 @@ export function GlobalSearch() {
       return;
     }
     startTransition(async () => {
-      const result = await globalSearchAction(value);
-      setGroups(result);
+      try {
+        setGroups(await globalSearchAction(value));
+      } catch {
+        // e.g. a revoked session or missing permission — show no results rather than crash the page.
+        setGroups([]);
+      }
     });
   }, []);
 

@@ -57,7 +57,7 @@ export async function bulkImportItemsAction(formData: FormData): Promise<ActionR
       const raw = parsed.data[i];
 
       try {
-        const row = itemImportRowSchema.parse({
+        const parsedRow = itemImportRowSchema.safeParse({
           sku: raw.sku,
           itemCode: raw.itemCode,
           name: raw.name,
@@ -75,6 +75,12 @@ export async function bulkImportItemsAction(formData: FormData): Promise<ActionR
           hsnCode: raw.hsnCode,
           barcode: raw.barcode,
         });
+        if (!parsedRow.success) {
+          const issue = parsedRow.error.issues[0];
+          const field = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+          throw new Error(`${field}${issue.message}`);
+        }
+        const row = parsedRow.data;
 
         // Resolve category
         let categoryId: string | null = row.categoryId || null;
@@ -115,6 +121,10 @@ export async function bulkImportItemsAction(formData: FormData): Promise<ActionR
         ]);
         if (skuTaken) throw new Error(`SKU "${row.sku}" already exists.`);
         if (codeTaken) throw new Error(`Item code "${row.itemCode}" already exists.`);
+        if (row.barcode) {
+          const barcodeTaken = await prisma.item.findUnique({ where: { barcode: row.barcode } });
+          if (barcodeTaken) throw new Error(`Barcode "${row.barcode}" already exists.`);
+        }
 
         // Each row's insert is its own atomic unit — a failure here never leaves a half-written row.
         await prisma.$transaction(async (tx) => {

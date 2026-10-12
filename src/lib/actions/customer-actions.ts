@@ -16,8 +16,20 @@ function toNullable(value: string | undefined) {
 
 /** Auto-generates the next sequential `CUST-###` code. Master data only — not high-volume enough to need `nextDocumentNumber`/`NumberSequence`. */
 async function generateCustomerCode(tx: Prisma.TransactionClient): Promise<string> {
-  const count = await tx.customer.count();
-  return `CUST-${String(count + 1).padStart(3, "0")}`;
+  // Highest existing numeric suffix (not a row count), so gaps can't produce a duplicate.
+  const [row] = await tx.$queryRaw<{ max: number | null }[]>`
+    SELECT MAX(CAST(SUBSTRING("customerCode" FROM 6) AS INTEGER)) AS max
+    FROM "Customer"
+    WHERE "customerCode" ~ '^CUST-[0-9]{1,9}$'`;
+  return `CUST-${String((row?.max ?? 0) + 1).padStart(3, "0")}`;
+}
+
+/** Concurrent creates can still race to the same code. A unique-constraint failure aborts the
+ * whole Postgres transaction, so each retry must run in a fresh transaction. */
+const MAX_CODE_ATTEMPTS = 5;
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 export type CustomerRow = {
@@ -90,12 +102,12 @@ export async function createCustomerAction(input: unknown): Promise<ActionResult
     const user = await requirePermission("CUSTOMER_CREATE");
     const data = customerSchema.parse(input);
 
-    const created = await prisma.$transaction(async (tx) => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const customerCode = await generateCustomerCode(tx);
-        try {
-          return await tx.customer.create({
+    let created: Prisma.CustomerGetPayload<object> | undefined;
+    for (let attempt = 1; !created; attempt++) {
+      try {
+        created = await prisma.$transaction(async (tx) => {
+          const customerCode = await generateCustomerCode(tx);
+          return tx.customer.create({
             data: {
               customerCode,
               name: data.name.trim(),
@@ -108,16 +120,12 @@ export async function createCustomerAction(input: unknown): Promise<ActionResult
               status: data.status,
             },
           });
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-            lastError = error;
-            continue;
-          }
-          throw error;
-        }
+        });
+      } catch (error) {
+        if (isUniqueViolation(error) && attempt < MAX_CODE_ATTEMPTS) continue;
+        throw error;
       }
-      throw lastError instanceof Error ? lastError : new Error("Failed to generate a unique customer code.");
-    });
+    }
 
     await writeAuditLog({
       userId: user.id,

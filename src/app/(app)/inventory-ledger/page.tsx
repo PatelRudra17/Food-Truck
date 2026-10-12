@@ -137,7 +137,7 @@ export default async function InventoryLedgerPage({
               </TableHeader>
               <TableBody>
                 {rows.map((row) => {
-                  const href = referenceHref(row.referenceType, row.referenceId);
+                  const href = referenceHref(row.referenceType, row.referenceId, row.referenceNumber);
                   return (
                     <TableRow key={row.id}>
                       <TableCell>{format(row.createdAt, "dd MMM yyyy, HH:mm")}</TableCell>
@@ -177,12 +177,25 @@ export default async function InventoryLedgerPage({
               {Math.min(pager.page * pager.pageSize, pager.total)} of {pager.total}
             </p>
             <div className="flex gap-2">
-              <Button asChild variant="outline" size="sm" disabled={pager.page <= 1}>
-                <Link href={pageHref(pager.page - 1)}>Previous</Link>
-              </Button>
-              <Button asChild variant="outline" size="sm" disabled={pager.page >= pager.pageCount}>
-                <Link href={pageHref(pager.page + 1)}>Next</Link>
-              </Button>
+              {/* `disabled` has no effect on a Link, so render a plain disabled button at the ends. */}
+              {pager.page <= 1 ? (
+                <Button variant="outline" size="sm" disabled>
+                  Previous
+                </Button>
+              ) : (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={pageHref(pager.page - 1)}>Previous</Link>
+                </Button>
+              )}
+              {pager.page >= pager.pageCount ? (
+                <Button variant="outline" size="sm" disabled>
+                  Next
+                </Button>
+              ) : (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={pageHref(pager.page + 1)}>Next</Link>
+                </Button>
+              )}
             </div>
           </div>
         </div>

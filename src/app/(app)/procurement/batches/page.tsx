@@ -2,7 +2,7 @@ import { format } from "date-fns";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
-import { paginationSchema, paginationMeta } from "@/lib/validators/common";
+import { paginationSchema, paginationMeta, isOneOf } from "@/lib/validators/common";
 import { PageHeader } from "@/components/shared/page-header";
 import { TableSearchInput } from "@/components/shared/table-search-input";
 import { StatusFilterSelect } from "@/components/shared/status-filter-select";
@@ -29,9 +29,7 @@ export default async function ProcurementBatchesPage({
   const supplierId = typeof params.supplierId === "string" ? params.supplierId : undefined;
 
   const where: Prisma.ProcurementBatchWhereInput = {
-    ...(status
-      ? { status: status as "PENDING_UNLOADING" | "PENDING_SORTING" | "SORTED" | "CLOSED" }
-      : {}),
+    ...(isOneOf(status, ["PENDING_UNLOADING", "PENDING_SORTING", "SORTED", "CLOSED"] as const) ? { status } : {}),
     ...(itemId ? { itemId } : {}),
     ...(supplierId ? { supplierId } : {}),
     ...(q ? { batchNumber: { contains: q, mode: "insensitive" } } : {}),

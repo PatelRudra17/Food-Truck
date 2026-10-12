@@ -16,6 +16,7 @@ export type FuelRow = {
   date: string;
   vehicleNumber: string;
   driverName: string | null;
+  tripNumber: string | null;
   distanceKm: number;
   fuelQuantityLiters: number;
   totalFuelCost: number;
@@ -59,19 +60,24 @@ export function FuelTable({
         cell: ({ row }) => row.original.driverName ?? "—",
       },
       {
+        accessorKey: "tripNumber",
+        header: "Trip",
+        cell: ({ row }) => row.original.tripNumber ?? "—",
+      },
+      {
         accessorKey: "distanceKm",
         header: "Distance",
-        cell: ({ row }) => `${row.original.distanceKm.toLocaleString()} km`,
+        cell: ({ row }) => `${row.original.distanceKm.toLocaleString("en-IN")} km`,
       },
       {
         accessorKey: "fuelQuantityLiters",
         header: "Fuel Qty",
-        cell: ({ row }) => `${row.original.fuelQuantityLiters.toLocaleString()} L`,
+        cell: ({ row }) => `${row.original.fuelQuantityLiters.toLocaleString("en-IN")} L`,
       },
       {
         accessorKey: "totalFuelCost",
         header: "Total Cost",
-        cell: ({ row }) => `₹${row.original.totalFuelCost.toLocaleString()}`,
+        cell: ({ row }) => `₹${row.original.totalFuelCost.toLocaleString("en-IN")}`,
       },
       {
         accessorKey: "mileageKmpl",

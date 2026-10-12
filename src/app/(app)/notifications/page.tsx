@@ -5,34 +5,9 @@ import { PageHeader } from "@/components/shared/page-header";
 import { TableFilterSelect } from "@/components/shared/table-filter-select";
 import { paginationMeta } from "@/lib/validators/common";
 import { NotificationsClient } from "@/components/notifications/notifications-client";
+import { notificationHref } from "@/lib/notification-href";
 
 export const metadata = { title: "Notifications" };
-
-function notificationHref(entityType: string | null, entityId: string | null) {
-  if (!entityType || !entityId) return null;
-  switch (entityType) {
-    case "StockInward":
-      return `/stock/inward/${entityId}`;
-    case "StockOutward":
-      return `/stock/outward/${entityId}`;
-    case "StockTransfer":
-      return `/stock/transfer/${entityId}`;
-    case "StockAdjustment":
-      return `/stock/adjustment/${entityId}`;
-    case "PurchaseOrder":
-      return `/purchase-orders/${entityId}`;
-    case "Vehicle":
-      return `/vehicles/${entityId}`;
-    case "Driver":
-      return `/drivers/${entityId}`;
-    case "Supplier":
-      return `/suppliers/${entityId}`;
-    case "Item":
-      return `/items/${entityId}`;
-    default:
-      return null;
-  }
-}
 
 export default async function NotificationsPage({
   searchParams,
@@ -52,15 +27,24 @@ export default async function NotificationsPage({
   const readFilter = get("read");
   const type = get("type");
 
-  const [notifications, unreadCount] = await Promise.all([
-    getMyNotificationsPaginated({
-      page,
-      pageSize,
-      isRead: readFilter === "read" ? true : readFilter === "unread" ? false : undefined,
-      type: type && type in NotificationType ? (type as NotificationType) : undefined,
-    }),
+  const filters = {
+    pageSize,
+    isRead: readFilter === "read" ? true : readFilter === "unread" ? false : undefined,
+    type: type && type in NotificationType ? (type as NotificationType) : undefined,
+  };
+
+  const [firstFetch, unreadCount] = await Promise.all([
+    getMyNotificationsPaginated({ ...filters, page }),
     getUnreadNotificationCount(),
   ]);
+
+  // A page past the end (e.g. ?page=999) would render "Showing 19961–1 of 1".
+  // Clamp to the last page that actually has rows and refetch it.
+  const lastPage = Math.max(1, Math.ceil(firstFetch.total / firstFetch.pageSize));
+  const notifications =
+    firstFetch.page > lastPage
+      ? await getMyNotificationsPaginated({ ...filters, page: lastPage })
+      : firstFetch;
 
   return (
     <div className="space-y-6">

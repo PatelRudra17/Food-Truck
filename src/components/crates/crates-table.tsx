@@ -1,8 +1,10 @@
 "use client";
 
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { type LegacyColumnDef as ColumnDef } from "@tanstack/react-table/legacy";
-import { MoreHorizontal, Pencil, RefreshCcw } from "lucide-react";
+import { MoreHorizontal, Pencil, RefreshCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,6 +16,7 @@ import { DataTable, type PaginationMeta } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { CrateFormDialog, type CrateEditing, type CustomerOption } from "@/components/crates/crate-form-dialog";
 import { CrateStatusDialog } from "@/components/crates/crate-status-dialog";
+import { markCratesCleanedAction } from "@/lib/actions/crate-actions";
 
 export type CrateRow = CrateEditing & { status: string; customerName: string | null };
 
@@ -29,6 +32,19 @@ export function CratesTable({
   canEdit: boolean;
 }) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  function markCleaned(crate: CrateRow) {
+    startTransition(async () => {
+      const result = await markCratesCleanedAction({ ids: [crate.id] });
+      if (result.ok) {
+        toast.success(`${crate.crateCode} marked cleaned and available.`);
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
 
   const columns: ColumnDef<CrateRow>[] = [
     { accessorKey: "crateCode", header: "Code" },
@@ -84,6 +100,11 @@ export function CratesTable({
                   </DropdownMenuItem>
                 }
               />
+              {row.original.status === "CLEANING" && (
+                <DropdownMenuItem disabled={isPending} onSelect={() => markCleaned(row.original)}>
+                  <Sparkles className="mr-2 h-4 w-4" /> Mark cleaned
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

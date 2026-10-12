@@ -24,12 +24,19 @@ export function RejectDialog({
   description,
   onConfirm,
   onSuccess,
+  confirmLabel = "Reject",
+  successMessage = "Rejected.",
+  reasonPlaceholder = "Explain why this is being rejected...",
 }: {
   trigger: ReactNode;
   title: string;
   description?: string;
   onConfirm: (comment: string) => Promise<ActionResult<unknown>>;
   onSuccess?: () => void;
+  /** Wording for reuse by other reason-required actions (e.g. cancel, reopen). */
+  confirmLabel?: string;
+  successMessage?: string;
+  reasonPlaceholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [comment, setComment] = useState("");
@@ -37,7 +44,7 @@ export function RejectDialog({
 
   function handleConfirm() {
     if (!comment.trim()) {
-      toast.error("A reason is required to reject.");
+      toast.error("A reason is required.");
       return;
     }
     startTransition(async () => {
@@ -45,7 +52,7 @@ export function RejectDialog({
       if (result.ok) {
         setOpen(false);
         setComment("");
-        toast.success("Rejected.");
+        toast.success(successMessage);
         onSuccess?.();
       } else {
         toast.error(result.error);
@@ -68,7 +75,7 @@ export function RejectDialog({
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={3}
-            placeholder="Explain why this is being rejected..."
+            placeholder={reasonPlaceholder}
           />
         </div>
         <DialogFooter>
@@ -80,7 +87,7 @@ export function RejectDialog({
             onClick={handleConfirm}
             disabled={isPending}
           >
-            {isPending ? "Please wait..." : "Reject"}
+            {isPending ? "Please wait..." : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

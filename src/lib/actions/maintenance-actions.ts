@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
 import { maintenanceSchema } from "@/lib/validators/maintenance";
-import { computeMaintenanceState } from "@/lib/services/maintenance";
+import { computeMaintenanceState, deriveServiceSchedule } from "@/lib/services/maintenance";
 import { checkDispatchEligibility, type DispatchCheck } from "@/lib/services/dispatch";
 import { validateUpload, uploadObject, getSignedDownloadUrl } from "@/lib/storage";
 
@@ -179,14 +179,38 @@ export async function archiveMaintenanceAction(id: string, reason: string): Prom
     if (!existing) throw new Error("Maintenance record not found.");
     if (existing.isArchived) throw new Error("This maintenance record is already archived.");
 
-    await prisma.vehicleMaintenance.update({
-      where: { id },
-      data: {
-        isArchived: true,
-        archiveReason: reason.trim(),
-        archivedById: user.id,
-        archivedAt: new Date(),
-      },
+    const vehicleSchedule = await prisma.$transaction(async (tx) => {
+      await tx.vehicleMaintenance.update({
+        where: { id },
+        data: {
+          isArchived: true,
+          archiveReason: reason.trim(),
+          archivedById: user.id,
+          archivedAt: new Date(),
+        },
+      });
+
+      // The archived record may be the one that set the vehicle's last/next
+      // service values, so rebuild them from the latest remaining record.
+      const vehicle = await tx.vehicle.findUnique({ where: { id: existing.vehicleId } });
+      if (!vehicle) return null;
+      const latest = await tx.vehicleMaintenance.findFirst({
+        where: { vehicleId: existing.vehicleId, isArchived: false },
+        orderBy: [{ serviceDate: "desc" }, { createdAt: "desc" }],
+        select: { serviceDate: true, odometerKm: true },
+      });
+      const schedule = deriveServiceSchedule(vehicle, latest);
+      await tx.vehicle.update({ where: { id: vehicle.id }, data: schedule });
+      return {
+        old: {
+          lastServiceDate: vehicle.lastServiceDate,
+          lastServiceKm: vehicle.lastServiceKm,
+          nextServiceDate: vehicle.nextServiceDate,
+          nextServiceKm: vehicle.nextServiceKm,
+          maintenanceState: vehicle.maintenanceState,
+        },
+        new: schedule,
+      };
     });
 
     await writeAuditLog({
@@ -198,7 +222,20 @@ export async function archiveMaintenanceAction(id: string, reason: string): Prom
       newValues: { archiveReason: reason.trim() },
     });
 
+    if (vehicleSchedule) {
+      await writeAuditLog({
+        userId: user.id,
+        action: "EDIT",
+        entityType: "Vehicle",
+        entityId: existing.vehicleId,
+        oldValues: vehicleSchedule.old,
+        newValues: { ...vehicleSchedule.new, reason: `Maintenance record ${id} archived` },
+      });
+    }
+
     revalidatePath("/maintenance");
+    revalidatePath("/vehicles");
+    revalidatePath(`/vehicles/${existing.vehicleId}`);
     return { ok: true, data: { id } };
   } catch (error) {
     return actionError(error);

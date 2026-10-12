@@ -3,6 +3,7 @@
 import { GradeLedgerTxnType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
+import { assertSeparateApprover } from "@/lib/services/approval-policy";
 import { writeAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
@@ -166,6 +167,7 @@ export async function approveWastageAction(id: string, comment?: string): Promis
     if (!wastage) return { ok: false, error: "Wastage record not found." };
     const approval = wastage.approvals[0];
     if (!approval) return { ok: false, error: "This wastage record has no pending approval." };
+    await assertSeparateApprover(prisma, user.id, [wastage.recordedById, approval.requestedById]);
 
     await prisma.approval.update({
       where: { id: approval.id },

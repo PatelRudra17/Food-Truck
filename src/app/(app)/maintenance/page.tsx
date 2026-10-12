@@ -9,7 +9,7 @@ import { TableSearchInput } from "@/components/shared/table-search-input";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { paginationSchema, paginationMeta } from "@/lib/validators/common";
+import { paginationSchema, paginationMeta, dateParam } from "@/lib/validators/common";
 import { recomputeVehicleMaintenanceState } from "@/lib/actions/maintenance-actions";
 import { MaintenanceFilters } from "@/components/maintenance/maintenance-filters";
 import { MaintenanceTable } from "@/components/maintenance/maintenance-table";
@@ -41,8 +41,8 @@ export default async function MaintenancePage({
   )
     ? (maintenanceType as MaintenanceType)
     : undefined;
-  const dateFrom = get("dateFrom") || "";
-  const dateTo = get("dateTo") || "";
+  const dateFrom = dateParam(get("dateFrom"));
+  const dateTo = dateParam(get("dateTo"));
   const showArchived = get("showArchived") === "1";
 
   // Keep every vehicle's live maintenanceState fresh before we read it for the badges/summary
@@ -58,8 +58,8 @@ export default async function MaintenancePage({
     ...(dateFrom || dateTo
       ? {
           serviceDate: {
-            ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-            ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59`) } : {}),
+            ...(dateFrom ? { gte: new Date(`${dateFrom}T00:00:00`) } : {}),
+            ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59.999`) } : {}),
           },
         }
       : {}),

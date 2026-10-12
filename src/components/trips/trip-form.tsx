@@ -121,6 +121,8 @@ export function TripForm({
   function handleSalesOrderChange(value: string) {
     if (value === NONE) {
       setValue("salesOrderId", null);
+      // Lines keep their item/qty but are no longer tied to the (now unlinked) order.
+      (watchedItems ?? []).forEach((_, index) => setValue(`items.${index}.salesOrderItemId`, null));
       return;
     }
     setValue("salesOrderId", value);
@@ -145,6 +147,8 @@ export function TripForm({
 
   function handleItemSelect(index: number, itemId: string) {
     setValue(`items.${index}.itemId`, itemId);
+    // A different item is no longer the sales order line it was pre-filled from.
+    setValue(`items.${index}.salesOrderItemId`, null);
   }
 
   async function onSubmit(values: CreateTripInput) {
@@ -196,7 +200,8 @@ export function TripForm({
                   name="customerId"
                   control={control}
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    // Locked to the sales order's customer while an order is linked.
+                    <Select value={field.value} onValueChange={field.onChange} disabled={!!salesOrderId}>
                       <SelectTrigger id="customerId" className="w-full" aria-invalid={!!errors.customerId}>
                         <SelectValue placeholder="Select customer" />
                       </SelectTrigger>

@@ -220,7 +220,7 @@ export default async function StorageTemperaturePage({
                       return (
                         <TableRow key={`${l.itemId}-${l.warehouseId}`}>
                           <TableCell>
-                            <Link href={`/storage-temperature/${l.itemId}`} className="font-medium hover:underline">
+                            <Link href={`/storage-temperature?itemId=${l.itemId}`} className="font-medium hover:underline">
                               {l.item.name}
                             </Link>
                           </TableCell>

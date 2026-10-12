@@ -112,7 +112,7 @@ export default async function StockTransferDetailPage({ params }: { params: Prom
                       Decided by {approval.decidedBy.name} on {format(approval.decidedAt, "dd MMM yyyy HH:mm")}
                     </p>
                   )}
-                  {approval.comment && <p className="text-xs italic">"{approval.comment}"</p>}
+                  {approval.comment && <p className="text-xs italic">&ldquo;{approval.comment}&rdquo;</p>}
                 </div>
               ))
             )}

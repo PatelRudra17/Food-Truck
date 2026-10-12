@@ -141,6 +141,16 @@ export async function addLocationAction(input: unknown): Promise<ActionResult<{ 
     const warehouse = await prisma.warehouse.findUnique({ where: { id: data.warehouseId } });
     if (!warehouse) throw new Error("Warehouse not found.");
 
+    // Explicit check: the (warehouseId, rack, shelf, bin) unique index treats NULLs as
+    // distinct, so blank parts would otherwise allow duplicates. Here blank == blank.
+    const duplicate = await prisma.location.findFirst({
+      where: { warehouseId: data.warehouseId, rack: data.rack, shelf: data.shelf, bin: data.bin },
+    });
+    if (duplicate) {
+      const label = [data.rack, data.shelf, data.bin].map((p) => p || "—").join(" / ");
+      throw new Error(`Location ${label} already exists in this warehouse.`);
+    }
+
     const created = await prisma.location.create({
       data: {
         warehouseId: data.warehouseId,

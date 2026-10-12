@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { TableFilterSelect } from "@/components/shared/table-filter-select";
+import { TableSearchInput } from "@/components/shared/table-search-input";
 import { WASTE_REASON_LABELS } from "@/lib/validators/wastage";
 
 const STAGE_OPTIONS = [
@@ -41,6 +42,7 @@ export function WastageFilters({
 
   return (
     <div className="flex flex-wrap items-end gap-3">
+      <TableSearchInput placeholder="Search wastage #..." />
       <TableFilterSelect paramKey="stage" placeholder="All stages" options={STAGE_OPTIONS} />
       <TableFilterSelect paramKey="reason" placeholder="All reasons" options={REASON_OPTIONS} />
       <TableFilterSelect
@@ -73,7 +75,8 @@ export function WastageFilters({
           onChange={(e) => setParam("dateTo", e.target.value)}
         />
       </div>
-      {(searchParams.get("stage") ||
+      {(searchParams.get("q") ||
+        searchParams.get("stage") ||
         searchParams.get("reason") ||
         searchParams.get("itemId") ||
         searchParams.get("dateFrom") ||

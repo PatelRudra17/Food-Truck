@@ -65,6 +65,17 @@ export function SortingForm({ batch }: { batch: BatchInfo }) {
   const diff = batch.rawWeight - sum;
   const balanced = Math.abs(diff) < WEIGHT_BALANCE_EPSILON;
 
+  // Explain why nothing was submitted instead of leaving the user guessing.
+  function onInvalid() {
+    toast.error(
+      balanced
+        ? "Fix the highlighted fields before submitting."
+        : diff > 0
+          ? `Allocate the remaining ${diff.toLocaleString()} kg so the total equals the raw weight.`
+          : `Total is ${Math.abs(diff).toLocaleString()} kg over the raw weight — reduce a value.`,
+    );
+  }
+
   async function onSubmit(values: SortingInput) {
     setServerError(null);
     const result = await submitSortingAction(values);
@@ -81,7 +92,7 @@ export function SortingForm({ batch }: { batch: BatchInfo }) {
   return (
     <Card>
       <CardContent className="space-y-5 pt-6">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-5">
           {serverError && (
             <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
               {serverError}
@@ -184,7 +195,7 @@ export function SortingForm({ batch }: { batch: BatchInfo }) {
             <Button type="button" variant="outline" onClick={() => router.push("/procurement/sorting")}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || !balanced}>
+            <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Submitting..." : "Submit Sorting"}
             </Button>
           </div>

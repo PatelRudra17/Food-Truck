@@ -1,21 +1,80 @@
 import { prisma } from "@/lib/prisma";
 
+/** Dropdown options shared by the New and Edit procurement forms. */
+export async function getProcurementFormOptions() {
+  const [suppliers, warehouses, vehicles, drivers, gateEntries, purchaseOrders, items] = await Promise.all([
+    prisma.supplier.findMany({
+      where: { status: "ACTIVE" },
+      orderBy: { companyName: "asc" },
+      select: { id: true, companyName: true, code: true },
+    }),
+    prisma.warehouse.findMany({
+      where: { status: "ACTIVE" },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, code: true },
+    }),
+    prisma.vehicle.findMany({
+      where: { status: { not: "INACTIVE" } },
+      orderBy: { vehicleNumber: "asc" },
+      select: { id: true, vehicleNumber: true, vehicleType: true },
+    }),
+    prisma.driver.findMany({
+      where: { status: "ACTIVE" },
+      orderBy: { fullName: "asc" },
+      select: { id: true, fullName: true, mobile: true },
+    }),
+    // Only trucks still inside whose unloading has not started can take a procurement.
+    prisma.vehicleGateEntry.findMany({
+      where: { status: "INSIDE", unloading: null },
+      orderBy: { timeIn: "desc" },
+      select: { id: true, gateEntryNumber: true, vehicleId: true, driverId: true, supplierId: true },
+    }),
+    // Only orders still open for receiving.
+    prisma.purchaseOrder.findMany({
+      where: { status: { in: ["APPROVED", "PARTIALLY_RECEIVED"] } },
+      orderBy: { date: "desc" },
+      select: { id: true, poNumber: true, supplierId: true },
+    }),
+    prisma.item.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, sku: true, unit: true, purchasePrice: true, supplierId: true },
+    }),
+  ]);
+
+  return {
+    suppliers,
+    warehouses,
+    vehicles,
+    drivers,
+    gateEntries,
+    purchaseOrders,
+    items: items.map((item) => ({
+      ...item,
+      purchasePrice: item.purchasePrice ? Number(item.purchasePrice) : null,
+    })),
+  };
+}
+
 /**
  * Gate entries for a truck that is still on-site (INSIDE) and has at least
- * one linked Procurement, but has not yet had an Unloading record started.
+ * one non-cancelled Procurement, but has not yet had an Unloading record started.
  */
 export async function getGateEntriesAwaitingUnloading() {
   return prisma.vehicleGateEntry.findMany({
     where: {
       status: "INSIDE",
-      procurements: { some: {} },
+      procurements: { some: { status: { not: "CANCELLED" } } },
       unloading: null,
     },
     include: {
       vehicle: { select: { vehicleNumber: true, vehicleType: true } },
       driver: { select: { fullName: true, mobile: true } },
       supplier: { select: { companyName: true } },
-      procurements: { select: { id: true, procurementNumber: true, status: true } },
+      procurements: {
+        where: { status: { not: "CANCELLED" } },
+        select: { id: true, procurementNumber: true, status: true },
+      },
     },
     orderBy: { timeIn: "asc" },
   });
@@ -28,7 +87,16 @@ export async function getUnloadingsInProgress() {
       vehicle: { select: { vehicleNumber: true } },
       driver: { select: { fullName: true } },
       supplier: { select: { companyName: true } },
-      gateEntry: { select: { gateEntryNumber: true } },
+      gateEntry: {
+        select: {
+          gateEntryNumber: true,
+          procurementBatches: {
+            where: { status: "PENDING_UNLOADING" },
+            select: { id: true, batchNumber: true, rawWeight: true, item: { select: { name: true } } },
+            orderBy: { batchNumber: "asc" },
+          },
+        },
+      },
     },
     orderBy: { unloadingStartAt: "asc" },
   });
@@ -74,7 +142,7 @@ export async function getProcurementBatchTrace(id: string) {
           createdBy: { select: { name: true } },
         },
       },
-      procurementItem: { select: { quantity: true, unit: true, quality: true, purchasePrice: true, total: true } },
+      procurementItem: { select: { quantity: true, unit: true, weight: true, quality: true, purchasePrice: true, total: true } },
       supplier: { select: { id: true, companyName: true, code: true } },
       item: { select: { id: true, name: true, sku: true, unit: true } },
       vehicle: { select: { id: true, vehicleNumber: true, vehicleType: true } },

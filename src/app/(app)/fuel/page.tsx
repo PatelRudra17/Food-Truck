@@ -8,9 +8,10 @@ import { TableSearchInput } from "@/components/shared/table-search-input";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { paginationSchema, paginationMeta } from "@/lib/validators/common";
+import { paginationSchema, paginationMeta, dateParam } from "@/lib/validators/common";
 import { FuelFilters } from "@/components/fuel/fuel-filters";
 import { FuelTable } from "@/components/fuel/fuel-table";
+import { fuelTripLabels } from "@/lib/services/fuel-trips";
 import { Fuel as FuelIcon, IndianRupee, Gauge, TrendingUp, CalendarClock } from "lucide-react";
 import { startOfMonth } from "date-fns";
 
@@ -36,8 +37,8 @@ export default async function FuelPage({
   const driverId = get("driverId") || "";
   const fuelType = get("fuelType") || "";
   const fuelStation = get("fuelStation")?.trim() || "";
-  const dateFrom = get("dateFrom") || "";
-  const dateTo = get("dateTo") || "";
+  const dateFrom = dateParam(get("dateFrom"));
+  const dateTo = dateParam(get("dateTo"));
   const showVoided = get("showVoided") === "1";
 
   const where: Prisma.FuelEntryWhereInput = {
@@ -50,8 +51,8 @@ export default async function FuelPage({
     ...(dateFrom || dateTo
       ? {
           date: {
-            ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-            ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59`) } : {}),
+            ...(dateFrom ? { gte: new Date(`${dateFrom}T00:00:00`) } : {}),
+            ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59.999`) } : {}),
           },
         }
       : {}),
@@ -74,11 +75,14 @@ export default async function FuelPage({
     prisma.driver.findMany({ select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
   ]);
 
+  const tripLabels = await fuelTripLabels(entries.map((e) => e.tripId));
+
   const rows = entries.map((e) => ({
     id: e.id,
     date: e.date.toISOString(),
     vehicleNumber: e.vehicle.vehicleNumber,
     driverName: e.driver?.fullName ?? null,
+    tripNumber: e.tripId ? (tripLabels.get(e.tripId) ?? e.tripId) : null,
     distanceKm: Number(e.distanceKm),
     fuelQuantityLiters: Number(e.fuelQuantityLiters),
     totalFuelCost: Number(e.totalFuelCost),

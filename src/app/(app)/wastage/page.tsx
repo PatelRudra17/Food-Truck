@@ -28,10 +28,15 @@ export default async function WastagePage({
   const stage = get("stage") || "";
   const reason = get("reason") || "";
   const itemId = get("itemId") || "";
-  const dateFrom = get("dateFrom") || "";
-  const dateTo = get("dateTo") || "";
+  const q = get("q")?.trim() || "";
+  // Ignore malformed dates (e.g. ?dateFrom=abc) instead of passing Invalid Date to Prisma.
+  const validDate = (v: string | undefined) =>
+    v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(new Date(v).getTime()) ? v : "";
+  const dateFrom = validDate(get("dateFrom"));
+  const dateTo = validDate(get("dateTo"));
 
   const where: Prisma.WastageWhereInput = {
+    ...(q ? { wastageNumber: { contains: q, mode: "insensitive" } } : {}),
     ...(stage ? { stage: stage as WastageStage } : {}),
     ...(reason ? { reason: reason as WastageReason } : {}),
     ...(itemId ? { itemId } : {}),
@@ -56,7 +61,8 @@ export default async function WastagePage({
         recordedBy: { select: { name: true } },
         approvals: { orderBy: { requestedAt: "desc" }, take: 1, select: { decision: true } },
       },
-      orderBy: { date: "desc" },
+      // date is stored at midnight, so createdAt breaks ties and keeps the newest record on top.
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       skip: (pagination.page - 1) * pagination.pageSize,
       take: pagination.pageSize,
     }),

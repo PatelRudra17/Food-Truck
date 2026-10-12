@@ -65,12 +65,12 @@ export function MaintenanceTable({
       {
         accessorKey: "odometerKm",
         header: "Odometer",
-        cell: ({ row }) => `${row.original.odometerKm.toLocaleString()} km`,
+        cell: ({ row }) => `${row.original.odometerKm.toLocaleString("en-IN")} km`,
       },
       {
         accessorKey: "totalCost",
         header: "Total Cost",
-        cell: ({ row }) => `₹${row.original.totalCost.toLocaleString()}`,
+        cell: ({ row }) => `₹${row.original.totalCost.toLocaleString("en-IN")}`,
       },
       {
         id: "vehicleState",
@@ -83,7 +83,7 @@ export function MaintenanceTable({
         cell: ({ row }) => (
           <div className="flex items-center gap-1.5">
             {row.original.isArchived && (
-              <StatusBadge status="INACTIVE" className="text-xs" />
+              <StatusBadge status="ARCHIVED" className="text-xs" />
             )}
             {row.original.hasAttachment && row.original.attachmentId && (
               <Button

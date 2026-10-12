@@ -13,6 +13,9 @@ export function TableSearchInput({ placeholder = "Search..." }: { placeholder?: 
   const [, startTransition] = useTransition();
 
   useEffect(() => {
+    // Only act when the text actually differs from the URL; otherwise loading a page
+    // like ?page=2 would immediately be reset to page 1.
+    if (value === (searchParams.get("q") ?? "")) return;
     const handle = setTimeout(() => {
       const params = new URLSearchParams(searchParams.toString());
       if (value) {

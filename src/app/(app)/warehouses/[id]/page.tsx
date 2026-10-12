@@ -29,8 +29,9 @@ export default async function WarehouseDetailPage({ params }: { params: Promise<
   if (!warehouse) notFound();
 
   const [itemCount, stockAgg, batches, temperatureLogs, movements] = await Promise.all([
-    prisma.item.count({ where: { warehouseId: id } }),
-    prisma.item.aggregate({ where: { warehouseId: id }, _sum: { currentStock: true } }),
+    // Stock actually held here (per-warehouse balances), not items whose home warehouse this is.
+    prisma.itemWarehouseStock.count({ where: { warehouseId: id, quantity: { not: 0 } } }),
+    prisma.itemWarehouseStock.aggregate({ where: { warehouseId: id }, _sum: { quantity: true } }),
     prisma.procurementBatch.findMany({
       where: { warehouseId: id },
       orderBy: { date: "desc" },
@@ -93,7 +94,7 @@ export default async function WarehouseDetailPage({ params }: { params: Promise<
             <CardTitle className="text-sm text-muted-foreground">Total Current Stock</CardTitle>
           </CardHeader>
           <CardContent className="text-lg font-medium tabular-nums">
-            {Number(stockAgg._sum.currentStock ?? 0).toLocaleString()}
+            {Number(stockAgg._sum.quantity ?? 0).toLocaleString()}
           </CardContent>
         </Card>
       </div>

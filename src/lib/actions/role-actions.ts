@@ -117,6 +117,14 @@ export async function saveRolePermissionsAction(input: unknown): Promise<ActionR
     const validCodes = new Set<string>(ALL_PERMISSIONS);
     const requestedCodes = Array.from(new Set(data.permissionCodes.filter((c) => validCodes.has(c))));
 
+    // Removing these from Super Admin could leave nobody able to manage users or roles.
+    if (role.name === "Super Admin") {
+      const missing = ["MANAGE_USERS", "MANAGE_ROLES"].filter((c) => !requestedCodes.includes(c));
+      if (missing.length > 0) {
+        throw new Error(`Super Admin must keep ${missing.join(" and ")} so the system stays manageable.`);
+      }
+    }
+
     const [permissions, current] = await Promise.all([
       prisma.permission.findMany({ where: { code: { in: requestedCodes } } }),
       prisma.rolePermission.findMany({ where: { roleId: data.roleId }, include: { permission: true } }),

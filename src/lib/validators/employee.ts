@@ -17,7 +17,14 @@ const optionalDate = z
 
 export const employeeSchema = z.object({
   name: z.string().trim().min(2, "Name is required"),
-  mobile: z.string().trim().min(6, "Mobile number is required"),
+  mobile: z
+    .string()
+    .trim()
+    .regex(/^\+?[\d\s-]+$/, "Mobile number can only contain digits, spaces, dashes and a leading +")
+    .refine((v) => {
+      const digits = v.replace(/\D/g, "").length;
+      return digits >= 10 && digits <= 15;
+    }, "Mobile number must have 10–15 digits"),
   department: optionalText,
   roleTitle: optionalText,
   joiningDate: optionalDate,

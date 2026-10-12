@@ -1,10 +1,11 @@
-import { requirePermission } from "@/lib/auth/guard";
+import { requireAnyPermission } from "@/lib/auth/guard";
+import { APPROVAL_CENTER_PERMISSIONS, approvableEntityTypes } from "@/lib/approval-permissions";
 import { PageHeader } from "@/components/shared/page-header";
 import { TableFilterSelect } from "@/components/shared/table-filter-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { paginationSchema } from "@/lib/validators/common";
+import { paginationSchema, dateParam } from "@/lib/validators/common";
 import { getApprovalEntityTypes, getApprovalHistory, getPendingApprovals } from "@/lib/services/approvals";
 import { PendingApprovalsTable } from "@/components/approvals/pending-approvals-table";
 import { ApprovalHistoryTable } from "@/components/approvals/approval-history-table";
@@ -16,7 +17,12 @@ export default async function ApprovalsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requirePermission("MANAGE_SETTINGS");
+  // Settings admins and anyone holding a module's *_APPROVE permission may open the center;
+  // each viewer only lists and decides the workflows they can approve.
+  const user = await requireAnyPermission(...APPROVAL_CENTER_PERMISSIONS);
+  const allowedEntityTypes = approvableEntityTypes(user.permissions);
+  // Settings admins keep the full decision history for oversight; others see their own workflows only.
+  const historyEntityTypes = user.permissions.includes("MANAGE_SETTINGS") ? undefined : allowedEntityTypes;
   const sp = await searchParams;
 
   const get = (key: string) => {
@@ -27,19 +33,20 @@ export default async function ApprovalsPage({
   const pagination = paginationSchema.parse({ page: get("page"), pageSize: get("pageSize") });
   const decision = get("decision") as "PENDING" | "APPROVED" | "REJECTED" | undefined;
   const entityType = get("entityType") || "";
-  const dateFrom = get("dateFrom") || "";
-  const dateTo = get("dateTo") || "";
+  const dateFrom = dateParam(get("dateFrom"));
+  const dateTo = dateParam(get("dateTo"));
 
   const [pending, history, entityTypes] = await Promise.all([
-    getPendingApprovals(),
+    getPendingApprovals(allowedEntityTypes),
     getApprovalHistory({
+      allowedEntityTypes: historyEntityTypes,
       ...pagination,
       decision: decision || undefined,
       entityType: entityType || undefined,
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
     }),
-    getApprovalEntityTypes(),
+    getApprovalEntityTypes(historyEntityTypes),
   ]);
 
   const hiddenParams: Record<string, string> = {};
@@ -57,7 +64,8 @@ export default async function ApprovalsPage({
         <CardHeader>
           <CardTitle className="text-base">Pending Approvals</CardTitle>
           <CardDescription>
-            {pending.length} request{pending.length === 1 ? "" : "s"} awaiting a decision, oldest first.
+            {pending.length} request{pending.length === 1 ? "" : "s"} awaiting your decision, oldest first. Only
+            workflows you can approve are listed.
           </CardDescription>
         </CardHeader>
         <CardContent>

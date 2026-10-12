@@ -3,6 +3,7 @@ import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { GlobalSearch } from "@/components/layout/global-search";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { UserMenu } from "@/components/layout/user-menu";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 import type { SessionUser } from "@/lib/auth/session";
 
 export function Header({ user }: { user: SessionUser }) {
@@ -15,9 +16,15 @@ export function Header({ user }: { user: SessionUser }) {
         <Breadcrumbs />
       </div>
       <div className="ml-auto flex min-w-0 shrink items-center gap-1 sm:gap-2">
-        <GlobalSearch />
+        {user.permissions.includes("GLOBAL_SEARCH") && <GlobalSearch />}
+        <ThemeToggle />
         <NotificationBell />
-        <UserMenu name={user.name} email={user.email} role={user.roleName} />
+        <UserMenu
+          name={user.name}
+          email={user.email}
+          role={user.roleName}
+          canManageSettings={user.permissions.includes("MANAGE_SETTINGS")}
+        />
       </div>
     </header>
   );

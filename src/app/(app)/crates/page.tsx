@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, hasPermission } from "@/lib/auth/guard";
 import { getSessionUser } from "@/lib/auth/session";
-import { paginationSchema, paginationMeta } from "@/lib/validators/common";
+import { paginationSchema, paginationMeta, isOneOf } from "@/lib/validators/common";
 import { CRATE_STATUS_OPTIONS } from "@/lib/validators/crate";
 import { checkOverdueCratesAndNotify } from "@/lib/services/crate-alerts";
 import { PageHeader } from "@/components/shared/page-header";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { CrateFormDialog } from "@/components/crates/crate-form-dialog";
 import { CratesTable } from "@/components/crates/crates-table";
 import { CrateKpiRow, type CrateStatusCounts } from "@/components/crates/crate-kpi-row";
+import { MarkAllCleanedButton } from "@/components/crates/mark-all-cleaned-button";
 
 export const metadata = { title: "Crates" };
 
@@ -43,7 +44,7 @@ export default async function CratesPage({
   const status = typeof params.status === "string" ? params.status : undefined;
 
   const where: Prisma.CrateWhereInput = {
-    ...(status ? { status: status as (typeof CRATE_STATUS_OPTIONS)[number] } : {}),
+    ...(isOneOf(status, CRATE_STATUS_OPTIONS) ? { status } : {}),
     ...(q
       ? {
           OR: [
@@ -91,6 +92,7 @@ export default async function CratesPage({
 
   const canCreate = hasPermission(user, "CRATE_CREATE");
   const canEdit = hasPermission(user, "CRATE_EDIT");
+  const cleaningCount = counts.CLEANING ?? 0;
 
   return (
     <div className="space-y-4">
@@ -98,15 +100,20 @@ export default async function CratesPage({
         title="Crates"
         description="Track physical crates, their current location and status."
         actions={
-          canCreate ? (
-            <CrateFormDialog
-              customers={customers}
-              trigger={
-                <Button size="sm">
-                  <Plus /> New Crate
-                </Button>
-              }
-            />
+          canCreate || (canEdit && cleaningCount > 0) ? (
+            <>
+              {canEdit && cleaningCount > 0 ? <MarkAllCleanedButton count={cleaningCount} /> : null}
+              {canCreate ? (
+                <CrateFormDialog
+                  customers={customers}
+                  trigger={
+                    <Button size="sm">
+                      <Plus /> New Crate
+                    </Button>
+                  }
+                />
+              ) : null}
+            </>
           ) : undefined
         }
       />

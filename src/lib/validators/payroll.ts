@@ -11,12 +11,9 @@ const optionalText = z
   .transform((v) => (v ? v : undefined));
 
 /**
- * Creates a Salary record for a single pay period. For Labour, `earnings`
- * is normally pre-filled from a suggested `dailyWage x presentDays` value
- * (see computeSuggestedLabourEarnings in the payroll service) but is always
- * editable — this schema does not enforce any formula. For Employee, the
- * user enters `earnings` directly; there is deliberately no automatic
- * statutory payroll calculation anywhere in this module.
+ * Creates a Salary record for a single pay period. The user enters
+ * `earnings` directly for both Employee and Labour; there is deliberately
+ * no automatic statutory payroll calculation anywhere in this module.
  */
 export const payrollSchema = z
   .object({
@@ -37,6 +34,10 @@ export const payrollSchema = z
   .refine((data) => new Date(data.periodEnd) >= new Date(data.periodStart), {
     message: "Period end must be on or after period start.",
     path: ["periodEnd"],
+  })
+  .refine((data) => data.earnings + data.overtimeAmount - data.advances - data.deductions >= 0, {
+    message: "Advances and deductions can't be more than earnings plus overtime.",
+    path: ["deductions"],
   });
 
 export type PayrollInput = z.infer<typeof payrollSchema>;

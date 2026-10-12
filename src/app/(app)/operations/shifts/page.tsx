@@ -9,7 +9,7 @@ import { paginationSchema, paginationMeta } from "@/lib/validators/common";
 import { ShiftFormDialog } from "@/components/shifts/shift-form-dialog";
 import { ShiftTable, type ShiftRow } from "@/components/shifts/shift-table";
 import { CalendarClock, Users2, PlayCircle, PauseCircle } from "lucide-react";
-import type { Prisma, ShiftStatus } from "@prisma/client";
+import { ShiftStatus, type Prisma } from "@prisma/client";
 
 export const metadata = { title: "Shifts" };
 
@@ -35,29 +35,37 @@ export default async function ShiftsPage({
 
   const pagination = paginationSchema.parse({ page: get("page"), pageSize: get("pageSize") });
   const q = get("q")?.trim() || "";
-  const status = get("status") || "";
+  // Unknown ?status= values are ignored rather than passed through to Prisma.
+  const rawStatus = get("status") || "";
+  const status = (Object.values(ShiftStatus) as string[]).includes(rawStatus) ? rawStatus : "";
 
   const where: Prisma.ShiftWhereInput = {
     ...(status ? { status: status as ShiftStatus } : {}),
     ...(q ? { shiftName: { contains: q, mode: "insensitive" } } : {}),
   };
 
-  const [total, shifts, activeCount, closedCount, users] = await Promise.all([
-    prisma.shift.count({ where }),
-    prisma.shift.findMany({
-      where,
-      include: {
-        supervisor: { select: { name: true } },
-        _count: { select: { employees: true, labourers: true } },
-      },
-      orderBy: { date: "desc" },
-      skip: (pagination.page - 1) * pagination.pageSize,
-      take: pagination.pageSize,
-    }),
-    prisma.shift.count({ where: { status: "ACTIVE" } }),
-    prisma.shift.count({ where: { status: "CLOSED" } }),
-    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-  ]);
+  // KPI cards are global (independent of the search/status filter and the
+  // current page); only the table below is filter-scoped.
+  const [total, shifts, activeCount, closedCount, allShiftsCount, employeesAssigned, labourAssigned, users] =
+    await Promise.all([
+      prisma.shift.count({ where }),
+      prisma.shift.findMany({
+        where,
+        include: {
+          supervisor: { select: { name: true } },
+          _count: { select: { employees: true, labourers: true } },
+        },
+        orderBy: { date: "desc" },
+        skip: (pagination.page - 1) * pagination.pageSize,
+        take: pagination.pageSize,
+      }),
+      prisma.shift.count({ where: { status: "ACTIVE" } }),
+      prisma.shift.count({ where: { status: "CLOSED" } }),
+      prisma.shift.count(),
+      prisma.employee.count({ where: { shiftId: { not: null } } }),
+      prisma.labour.count({ where: { shiftId: { not: null } } }),
+      prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    ]);
 
   const rows: ShiftRow[] = shifts.map((s) => ({
     id: s.id,
@@ -84,10 +92,10 @@ export default async function ShiftsPage({
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Active Shifts" value={activeCount} icon={PlayCircle} />
         <KpiCard label="Closed Shifts" value={closedCount} icon={PauseCircle} />
-        <KpiCard label="Total Shifts" value={total} icon={CalendarClock} />
+        <KpiCard label="Total Shifts" value={allShiftsCount} icon={CalendarClock} />
         <KpiCard
           label="Staff Assigned"
-          value={rows.reduce((sum, r) => sum + r.staffCount, 0)}
+          value={employeesAssigned + labourAssigned}
           icon={Users2}
         />
       </div>

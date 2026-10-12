@@ -163,8 +163,12 @@ export function InwardForm({
     const item = itemMap.get(itemId);
     if (item) {
       setValue(`items.${index}.unit`, item.unit);
-      setValue(`items.${index}.rate`, item.purchasePrice ?? null);
-      setValue(`items.${index}.taxPercent`, item.taxPercent ?? null);
+      // Only prefill master values the line schema will accept; an invalid (e.g. negative)
+      // master price would otherwise block Save on a field the user never touched.
+      const price = item.purchasePrice;
+      const tax = item.taxPercent;
+      setValue(`items.${index}.rate`, price != null && price >= 0 ? price : null);
+      setValue(`items.${index}.taxPercent`, tax != null && tax >= 0 && tax <= 100 ? tax : null);
     }
   }
 
@@ -184,7 +188,10 @@ export function InwardForm({
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form
+      onSubmit={handleSubmit(onSubmit, () => toast.error("Please fix the highlighted fields before saving."))}
+      className="space-y-6"
+    >
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Inward Details</CardTitle>
@@ -400,6 +407,7 @@ export function InwardForm({
                           min="0"
                           {...register(`items.${index}.quantity`)}
                         />
+                        <FieldError errors={[errors.items?.[index]?.quantity]} />
                       </TableCell>
                       <TableCell>
                         <Input {...register(`items.${index}.unit`)} readOnly className="bg-muted" />
@@ -414,20 +422,26 @@ export function InwardForm({
                         <Input type="date" {...register(`items.${index}.expiryDate`)} />
                       </TableCell>
                       <TableCell>
+                        {/* step="any": the schema reports too many decimals as a field error
+                            instead of the browser blocking submit with only a tooltip. */}
                         <Input
                           type="number"
-                          step="0.01"
+                          step="any"
                           min="0"
                           {...register(`items.${index}.rate`)}
+                          aria-invalid={!!errors.items?.[index]?.rate}
                         />
+                        <FieldError errors={[errors.items?.[index]?.rate]} />
                       </TableCell>
                       <TableCell>
                         <Input
                           type="number"
-                          step="0.01"
+                          step="any"
                           min="0"
                           {...register(`items.${index}.taxPercent`)}
+                          aria-invalid={!!errors.items?.[index]?.taxPercent}
                         />
+                        <FieldError errors={[errors.items?.[index]?.taxPercent]} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {total ? total.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}

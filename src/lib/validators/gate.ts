@@ -34,11 +34,18 @@ export const recordVehicleOutSchema = z.object({
 
 export type RecordVehicleOutInput = z.infer<typeof recordVehicleOutSchema>;
 
+// URL filters: malformed values fall back to defaults instead of crashing the page.
+const urlDate = z
+  .string()
+  .optional()
+  .catch(undefined)
+  .transform((v) => (v && !Number.isNaN(new Date(`${v}T00:00:00`).getTime()) ? v : undefined));
+
 export const gateActivityFilterSchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  page: z.coerce.number().int().min(1).catch(1),
+  pageSize: z.coerce.number().int().min(1).max(100).catch(20),
+  from: urlDate,
+  to: urlDate,
   vehicleId: z.string().optional(),
 });
 

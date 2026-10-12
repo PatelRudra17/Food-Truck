@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createUserAction, updateUserAction } from "@/lib/actions/user-actions";
+import { passwordPolicyError } from "@/lib/validators/user";
 
 export type RoleOption = { id: string; name: string };
 
@@ -58,6 +59,7 @@ export function UserFormDialog({
     handleSubmit,
     control,
     reset,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -84,8 +86,9 @@ export function UserFormDialog({
   }, [open]);
 
   async function onSubmit(values: FormValues) {
-    if (!isEdit && (!values.password || values.password.length < 8)) {
-      toast.error("Password must be at least 8 characters.");
+    const passwordError = isEdit ? null : passwordPolicyError(values.password ?? "");
+    if (passwordError) {
+      setError("password", { message: passwordError });
       return;
     }
 
@@ -141,8 +144,18 @@ export function UserFormDialog({
             {!isEdit && (
               <div className="col-span-2 flex flex-col gap-1.5">
                 <Label htmlFor="u-password">Initial password</Label>
-                <Input id="u-password" type="password" autoComplete="new-password" {...register("password")} />
-                <p className="text-xs text-muted-foreground">At least 8 characters.</p>
+                <Input
+                  id="u-password"
+                  type="password"
+                  autoComplete="new-password"
+                  {...register("password")}
+                  aria-invalid={!!errors.password}
+                />
+                {errors.password ? (
+                  <p className="text-sm text-destructive">{errors.password.message}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">At least 8 characters, with a letter and a number.</p>
+                )}
               </div>
             )}
 

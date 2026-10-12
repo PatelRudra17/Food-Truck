@@ -5,8 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
 import { writeAuditLog } from "@/lib/audit";
 import { notifyRoleByName } from "@/lib/services/notifications";
-import { applyStockMovement } from "@/lib/services/inventory";
+import { applyStockMovement, getWarehouseStock } from "@/lib/services/inventory";
 import { nextDocumentNumber } from "@/lib/numbering";
+import { assertSeparateApprover } from "@/lib/services/approval-policy";
 import { validateUpload, uploadObject, UploadValidationError, getSignedDownloadUrl } from "@/lib/storage";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
@@ -26,7 +27,8 @@ export async function createAdjustmentAction(formData: FormData): Promise<Action
     const item = await prisma.item.findUnique({ where: { id: data.itemId } });
     if (!item) return { ok: false, error: "Item not found." };
 
-    const currentQty = item.currentStock;
+    // A physical count is for one warehouse, so compare it with that warehouse's balance.
+    const currentQty = await getWarehouseStock(prisma, data.itemId, data.warehouseId);
     const physicalQty = new Prisma.Decimal(data.physicalQty);
     const difference = physicalQty.minus(currentQty);
 
@@ -118,22 +120,32 @@ export async function approveAdjustmentAction(id: string): Promise<ActionResult>
   try {
     const user = await requirePermission("STOCK_ADJUSTMENT_APPROVE");
 
-    await prisma.$transaction(async (tx) => {
+    const applied = await prisma.$transaction(async (tx) => {
       const adjustment = await tx.stockAdjustment.findUnique({
         where: { id },
         include: { approvals: { where: { decision: "PENDING" }, orderBy: { requestedAt: "desc" }, take: 1 } },
       });
       if (!adjustment) throw new Error("Adjustment not found.");
+      await assertSeparateApprover(tx, user.id, [adjustment.createdById, adjustment.approvals[0]?.requestedById]);
+
+      // Stock may have moved since the count was requested (other movements or earlier
+      // adjustments), so recompute the difference against the live balance under a row
+      // lock. Applying the stale request-time difference would not land on the counted qty.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "Item" WHERE id = ${adjustment.itemId} FOR UPDATE
+      `;
+      if (locked.length === 0) throw new Error("Item not found.");
+      const currentQty = await getWarehouseStock(tx, adjustment.itemId, adjustment.warehouseId);
+      const difference = new Prisma.Decimal(adjustment.physicalQty).minus(currentQty);
 
       const updated = await tx.stockAdjustment.updateMany({
         where: { id, status: "PENDING_APPROVAL" },
-        data: { status: "APPROVED", approvedById: user.id },
+        data: { status: "APPROVED", approvedById: user.id, currentQty, difference },
       });
       if (updated.count === 0) {
         throw new Error("Only adjustments pending approval can be approved.");
       }
 
-      const difference = new Prisma.Decimal(adjustment.difference);
       if (!difference.isZero()) {
         await applyStockMovement(tx, {
           itemId: adjustment.itemId,
@@ -155,6 +167,7 @@ export async function approveAdjustmentAction(id: string): Promise<ActionResult>
           data: { decision: "APPROVED", decidedById: user.id, decidedAt: new Date() },
         });
       }
+      return { currentQty, difference };
     });
 
     await writeAuditLog({
@@ -162,6 +175,7 @@ export async function approveAdjustmentAction(id: string): Promise<ActionResult>
       action: "APPROVE",
       entityType: "StockAdjustment",
       entityId: id,
+      newValues: { currentQty: applied.currentQty.toString(), difference: applied.difference.toString() },
     });
     revalidatePath(`/stock/adjustment/${id}`);
     revalidatePath("/stock/adjustment");

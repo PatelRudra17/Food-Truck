@@ -12,10 +12,14 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
   await requirePermission("ITEM_EDIT");
   const { id } = await params;
 
-  const [item, categories, warehouses, suppliers] = await Promise.all([
-    prisma.item.findUnique({ where: { id } }),
+  const item = await prisma.item.findUnique({ where: { id } });
+  if (!item) notFound();
+
+  const [categories, warehouses, suppliers] = await Promise.all([
     prisma.category.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    // Only active warehouses, but keep the item's current one selectable even if since deactivated.
     prisma.warehouse.findMany({
+      where: item.warehouseId ? { OR: [{ status: "ACTIVE" }, { id: item.warehouseId }] } : { status: "ACTIVE" },
       orderBy: { name: "asc" },
       include: { locations: { orderBy: [{ rack: "asc" }, { shelf: "asc" }, { bin: "asc" }] } },
     }),
@@ -25,8 +29,6 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
       select: { id: true, companyName: true, code: true },
     }),
   ]);
-
-  if (!item) notFound();
 
   const initial = {
     id: item.id,

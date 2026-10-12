@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import type { NextRequest } from "next/server";
 import { format } from "date-fns";
 import { requirePermission } from "@/lib/auth/guard";
@@ -5,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { buildCsv, buildExcelBuffer, fileResponseHeaders } from "@/lib/services/export";
 import {
   REPORT_COLUMNS,
+  canAccessReport,
   formatExportValue,
   getReportRows,
   isReportType,
@@ -21,19 +23,27 @@ export async function GET(request: NextRequest) {
         headers: { "Content-Type": "application/json" },
       });
     }
-    if (type === "audit-log" && !user.permissions.includes("VIEW_AUDIT_LOG")) {
-      return new Response(JSON.stringify({ error: "You do not have permission to export the audit log." }), {
+    if (!canAccessReport(type, user.permissions)) {
+      return new Response(JSON.stringify({ error: "You do not have permission to export this report." }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       });
     }
 
+    const requestedFormat = request.nextUrl.searchParams.get("format") || "xlsx";
+    if (requestedFormat !== "xlsx" && requestedFormat !== "csv") {
+      return new Response(JSON.stringify({ error: "Unsupported format" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const formatType: "xlsx" | "csv" = requestedFormat;
+
     const filters = parseReportFilters(Object.fromEntries(request.nextUrl.searchParams.entries()));
     const result = await getReportRows(type, { ...filters, page: "1", pageSize: "5000" });
-    const columns = REPORT_COLUMNS[type];
+    const columns = result.columns ?? REPORT_COLUMNS[type];
     const headers = columns.map((column) => column.label);
     const rows = result.rows.map((row) => columns.map((column) => formatExportValue(row[column.key])));
-    const formatType = request.nextUrl.searchParams.get("format") === "csv" ? "csv" : "xlsx";
 
     await writeAuditLog({
       userId: user.id,
@@ -62,6 +72,7 @@ export async function GET(request: NextRequest) {
       ),
     });
   } catch (error) {
+    unstable_rethrow(error); // let a 403 from requirePermission through
     const message = error instanceof Error ? error.message : "Export failed.";
     return new Response(JSON.stringify({ error: message }), {
       status: 400,

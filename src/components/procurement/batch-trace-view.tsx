@@ -55,6 +55,7 @@ export type BatchTraceData = {
     itemName: string;
     itemSku: string;
     rawWeight: number;
+    declaredWeight: number;
     warehouseName: string;
     status: string;
     date: Date;
@@ -119,7 +120,9 @@ export function BatchTraceView({ data }: { data: BatchTraceData }) {
   steps.push({
     icon: <Package className="h-4 w-4" />,
     title: `Batch — ${data.batch.batchNumber}`,
-    subtitle: `${data.batch.itemName} (${data.batch.itemSku}) · ${data.batch.rawWeight.toLocaleString()} kg raw · ${data.batch.warehouseName}`,
+    subtitle: `${data.batch.itemName} (${data.batch.itemSku}) · ${data.batch.rawWeight.toLocaleString()} kg raw${
+      data.batch.declaredWeight !== data.batch.rawWeight ? ` (declared ${data.batch.declaredWeight.toLocaleString()} kg)` : ""
+    } · ${data.batch.warehouseName}`,
     detail: <StatusBadge status={data.batch.status} />,
   });
 

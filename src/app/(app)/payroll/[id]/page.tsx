@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
-import { CircleDollarSign } from "lucide-react";
+import { CircleDollarSign, Pencil } from "lucide-react";
 import { requirePermission } from "@/lib/auth/guard";
 import { getSalaryById } from "@/lib/services/payroll";
 import { PageHeader } from "@/components/shared/page-header";
@@ -30,6 +30,8 @@ export default async function PayrollDetailPage({ params }: { params: Promise<{ 
   if (!salary) notFound();
 
   const canApprove = user.permissions.includes("PAYROLL_APPROVE");
+  // Only pending records can change; a paid salary stays read-only.
+  const canEdit = user.permissions.includes("PAYROLL_EDIT") && salary.paymentStatus === "PENDING";
   const personName = salary.employee?.name ?? salary.labour?.name ?? "—";
   const personHref = salary.employee ? `/employees/${salary.employee.id}` : salary.labour ? `/labour/${salary.labour.id}` : undefined;
   const personCode = salary.employee?.employeeCode ?? salary.labour?.labourCode ?? "—";
@@ -40,18 +42,29 @@ export default async function PayrollDetailPage({ params }: { params: Promise<{ 
         title={`Salary — ${personName}`}
         description={`${personCode} · ${format(salary.periodStart, "dd MMM yyyy")} – ${format(salary.periodEnd, "dd MMM yyyy")}`}
         actions={
-          canApprove && salary.paymentStatus === "PENDING" ? (
-            <ConfirmDialog
-              trigger={
-                <Button size="sm">
-                  <CircleDollarSign className="h-4 w-4" /> Mark Paid
+          canEdit || (canApprove && salary.paymentStatus === "PENDING") ? (
+            <div className="flex flex-wrap gap-2">
+              {canEdit && (
+                <Button size="sm" variant="outline" asChild>
+                  <Link href={`/payroll/${salary.id}/edit`}>
+                    <Pencil className="h-4 w-4" /> Edit
+                  </Link>
                 </Button>
-              }
-              title="Mark this salary as paid?"
-              description="This records the payment date and cannot be undone from here."
-              confirmLabel="Mark Paid"
-              onConfirm={markPayrollPaidAction.bind(null, salary.id)}
-            />
+              )}
+              {canApprove && salary.paymentStatus === "PENDING" && (
+                <ConfirmDialog
+                  trigger={
+                    <Button size="sm">
+                      <CircleDollarSign className="h-4 w-4" /> Mark Paid
+                    </Button>
+                  }
+                  title="Mark this salary as paid?"
+                  description="This records the payment date and cannot be undone from here."
+                  confirmLabel="Mark Paid"
+                  onConfirm={markPayrollPaidAction.bind(null, salary.id)}
+                />
+              )}
+            </div>
           ) : undefined
         }
       />

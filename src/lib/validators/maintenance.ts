@@ -14,7 +14,11 @@ export const maintenanceSchema = z.object({
   partsCost: z.coerce.number().nonnegative().default(0),
   otherCost: z.coerce.number().nonnegative().default(0),
   remarks: z.string().optional().default(""),
-  markUnderMaintenance: z.coerce.boolean().optional().default(false),
+  // FormData sends checkbox state as a string; z.coerce.boolean() would turn "false" into true.
+  markUnderMaintenance: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((v) => v === true || v === "true" || v === "on" || v === "1"),
 });
 
 export type MaintenanceInput = z.infer<typeof maintenanceSchema>;

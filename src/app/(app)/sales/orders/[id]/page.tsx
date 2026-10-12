@@ -47,18 +47,30 @@ export default async function SalesOrderDetailPage({
   });
   if (!so) notFound();
 
-  const trips = await prisma.trip.findMany({
-    where: { salesOrderId: id },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      tripNumber: true,
-      status: true,
-      departureAt: true,
-      vehicle: { select: { vehicleNumber: true } },
-      driver: { select: { fullName: true } },
-    },
-  });
+  const [trips, shippedRows] = await Promise.all([
+    prisma.trip.findMany({
+      where: { salesOrderId: id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        tripNumber: true,
+        status: true,
+        departureAt: true,
+        vehicle: { select: { vehicleNumber: true } },
+        driver: { select: { fullName: true } },
+      },
+    }),
+    // Same rule the SO status uses: goods have shipped once their trip is dispatched/delivered/returned.
+    prisma.tripItem.groupBy({
+      by: ["salesOrderItemId"],
+      where: {
+        salesOrderItemId: { in: so.items.map((i) => i.id) },
+        trip: { status: { in: ["DISPATCHED", "DELIVERED", "RETURNED"] } },
+      },
+      _sum: { quantity: true },
+    }),
+  ]);
+  const shippedByLine = new Map(shippedRows.map((r) => [r.salesOrderItemId, Number(r._sum.quantity ?? 0)]));
 
   const canEdit = hasPermission(user, "SALES_ORDER_EDIT");
   const canApprove = hasPermission(user, "SALES_ORDER_APPROVE");
@@ -75,6 +87,7 @@ export default async function SalesOrderDetailPage({
             status={so.status}
             canEdit={canEdit}
             canApprove={canApprove}
+            hasActiveTrips={trips.some((t) => t.status !== "CANCELLED")}
           />
         }
       />
@@ -147,7 +160,12 @@ export default async function SalesOrderDetailPage({
                   <TableHead>Item</TableHead>
                   <TableHead>Grade</TableHead>
                   <TableHead className="text-right">Ordered Qty</TableHead>
-                  <TableHead className="text-right">Fulfilled Qty</TableHead>
+                  <TableHead className="text-right" title="Quantity committed to non-cancelled trips">
+                    On Trips
+                  </TableHead>
+                  <TableHead className="text-right" title="Quantity on dispatched, delivered or returned trips">
+                    Shipped
+                  </TableHead>
                   <TableHead className="text-right">Pending Qty</TableHead>
                   <TableHead className="w-40">Progress</TableHead>
                   <TableHead className="text-right">Rate</TableHead>
@@ -158,11 +176,19 @@ export default async function SalesOrderDetailPage({
               <TableBody>
                 {so.items.map((line) => {
                   const ordered = Number(line.quantity);
-                  const fulfilled = Number(line.fulfilledQty);
-                  const pending = Math.max(0, ordered - fulfilled);
-                  const pct = ordered > 0 ? Math.min(100, Math.round((fulfilled / ordered) * 100)) : 0;
+                  // fulfilledQty = committed to non-cancelled trips; "shipped" drives done-ness, like the SO status.
+                  const onTrips = Number(line.fulfilledQty);
+                  const shipped = shippedByLine.get(line.id) ?? 0;
+                  const pending = Math.max(0, ordered - shipped);
+                  const pct = ordered > 0 ? Math.min(100, Math.round((shipped / ordered) * 100)) : 0;
                   const dispatchStatus =
-                    fulfilled <= 0 ? "PENDING" : fulfilled >= ordered ? "FULFILLED" : "PARTIALLY_FULFILLED";
+                    shipped >= ordered && ordered > 0
+                      ? "FULFILLED"
+                      : shipped > 0
+                        ? "PARTIALLY_FULFILLED"
+                        : onTrips > 0
+                          ? "ON_TRIP"
+                          : "PENDING";
                   return (
                     <TableRow key={line.id}>
                       <TableCell>
@@ -174,7 +200,10 @@ export default async function SalesOrderDetailPage({
                         {ordered.toLocaleString()} {line.item.unit}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {fulfilled.toLocaleString()} {line.item.unit}
+                        {onTrips.toLocaleString()} {line.item.unit}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {shipped.toLocaleString()} {line.item.unit}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {pending.toLocaleString()} {line.item.unit}

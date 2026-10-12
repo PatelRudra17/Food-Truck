@@ -74,7 +74,7 @@ re-seeds (destructive — local/dev only).
 - A full transactional demo chain exercising the real business logic:
   procurement → gate entry → unloading → sorting/grading → wastage → sales
   orders → dispatch trips (at various lifecycle stages) → crate returns →
-  attendance → payroll → cleaning → next-day preparation.
+  payroll → next-day preparation.
 
 The seed script is idempotent-ish: master data uses `upsert` and is safe to
 re-run; re-running adds another round of transactional demo records (matching

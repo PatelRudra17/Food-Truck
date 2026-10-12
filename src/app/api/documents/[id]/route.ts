@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
@@ -32,6 +33,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
     return NextResponse.redirect(url);
   } catch (error) {
+    unstable_rethrow(error); // let a 403 from requirePermission through
     const message = error instanceof Error ? error.message : "Download failed.";
     return NextResponse.json({ error: message }, { status: 400 });
   }

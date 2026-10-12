@@ -139,7 +139,8 @@ export function SupplierFormDialog({
               </Field>
               <Field>
                 <FieldLabel htmlFor="phone">Phone</FieldLabel>
-                <Input id="phone" {...register("phone")} />
+                <Input id="phone" type="tel" {...register("phone")} aria-invalid={!!errors.phone} />
+                <FieldError errors={[errors.phone]} />
               </Field>
             </div>
 

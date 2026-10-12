@@ -138,6 +138,11 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
                   currentLocation: vehicle.currentLocation ?? undefined,
                   status: vehicle.status,
                   imageUrl: vehicle.imageUrl ?? undefined,
+                  fuelEfficiencyTargetKmpl: vehicle.fuelEfficiencyTargetKmpl?.toString(),
+                  serviceIntervalDays: vehicle.serviceIntervalDays?.toString(),
+                  serviceIntervalKm: vehicle.serviceIntervalKm?.toString(),
+                  nextServiceDate: toDateInputValue(vehicle.nextServiceDate),
+                  nextServiceKm: vehicle.nextServiceKm?.toString(),
                 }}
                 trigger={
                   <Button size="sm" variant="outline">
@@ -195,9 +200,35 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
                 }
               />
               <Field label="Current Location" value={vehicle.currentLocation} />
-              <Field label="Current KM" value={Number(vehicle.odometerKm).toLocaleString()} />
+              <Field label="Current KM" value={Number(vehicle.odometerKm).toLocaleString("en-IN")} />
               <Field label="Status" value={<StatusBadge status={vehicle.status} />} />
               <Field label="Maintenance State" value={<StatusBadge status={vehicle.maintenanceState} />} />
+              <Field
+                label="Fuel Efficiency Target"
+                value={vehicle.fuelEfficiencyTargetKmpl != null ? `${Number(vehicle.fuelEfficiencyTargetKmpl)} km/L` : null}
+              />
+              <Field
+                label="Service Interval"
+                value={
+                  [
+                    vehicle.serviceIntervalDays != null ? `${vehicle.serviceIntervalDays} days` : null,
+                    vehicle.serviceIntervalKm != null ? `${Number(vehicle.serviceIntervalKm).toLocaleString("en-IN")} km` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" / ") || null
+                }
+              />
+              <Field
+                label="Next Service"
+                value={
+                  [
+                    vehicle.nextServiceDate ? format(vehicle.nextServiceDate, "dd MMM yyyy") : null,
+                    vehicle.nextServiceKm != null ? `${Number(vehicle.nextServiceKm).toLocaleString("en-IN")} km` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" / ") || null
+                }
+              />
               <Field
                 label="Registration Date"
                 value={vehicle.registrationDate ? format(vehicle.registrationDate, "dd MMM yyyy") : null}

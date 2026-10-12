@@ -13,7 +13,13 @@ export default async function NewStockOutwardPage() {
     prisma.item.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, sku: true, name: true, unit: true, currentStock: true },
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        unit: true,
+        warehouseStocks: { select: { warehouseId: true, quantity: true } },
+      },
     }),
     prisma.vehicle.findMany({ orderBy: { vehicleNumber: "asc" } }),
     prisma.driver.findMany({ where: { status: "ACTIVE" }, orderBy: { fullName: "asc" } }),
@@ -32,7 +38,7 @@ export default async function NewStockOutwardPage() {
           sku: i.sku,
           name: i.name,
           unit: i.unit,
-          currentStock: Number(i.currentStock),
+          stockByWarehouse: Object.fromEntries(i.warehouseStocks.map((s) => [s.warehouseId, Number(s.quantity)])),
         }))}
         vehicles={vehicles.map((v) => ({ id: v.id, vehicleNumber: v.vehicleNumber }))}
         drivers={drivers.map((d) => ({ id: d.id, fullName: d.fullName }))}

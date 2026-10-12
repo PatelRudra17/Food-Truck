@@ -65,7 +65,11 @@ export const createTripSchema = z
     expectedArrivalAt: optionalDateTime,
     remarks: optionalText(1000),
     items: z.array(tripLineItemSchema).min(1, "Add at least one line item."),
-    overrideEligibility: z.coerce.boolean().default(false),
+    // z.coerce.boolean() would turn the string "false" into true and silently override the block.
+    overrideEligibility: z
+      .union([z.boolean(), z.string()])
+      .optional()
+      .transform((v) => v === true || v === "true" || v === "on" || v === "1"),
     eligibilityOverrideReason: optionalText(500),
   })
   .refine(

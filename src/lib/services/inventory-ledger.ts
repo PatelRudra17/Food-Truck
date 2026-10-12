@@ -11,19 +11,30 @@ export type LedgerQuery = {
   dateTo?: string;
 };
 
+/** True for a real calendar date in `yyyy-MM-dd` form (what `<input type="date">` sends). */
+function isValidDateParam(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return !Number.isNaN(new Date(`${value}T00:00:00.000`).getTime());
+}
+
 /** Parses ledger filter params from either awaited Next.js searchParams or a URLSearchParams getter. */
 export function parseLedgerQuery(get: (key: string) => string | null | undefined): LedgerQuery {
   const pick = (key: string) => {
     const value = get(key);
     return value && value.length > 0 ? value : undefined;
   };
+  // Malformed dates (e.g. ?dateFrom=abc) are ignored rather than reaching Prisma as Invalid Date.
+  const pickDate = (key: string) => {
+    const value = pick(key);
+    return value && isValidDateParam(value) ? value : undefined;
+  };
   return {
     q: pick("q"),
     itemId: pick("itemId"),
     warehouseId: pick("warehouseId"),
     transactionType: pick("transactionType"),
-    dateFrom: pick("dateFrom"),
-    dateTo: pick("dateTo"),
+    dateFrom: pickDate("dateFrom"),
+    dateTo: pickDate("dateTo"),
   };
 }
 
@@ -82,8 +93,16 @@ export async function queryLedgerForExport(filters: LedgerQuery, cap = 20000) {
   });
 }
 
-/** Best-effort link to the source document for a ledger reference, or null if not mapped. */
-export function referenceHref(referenceType: string, referenceId: string): string | null {
+/**
+ * Best-effort link to the source document for a ledger reference, or null if not mapped.
+ * SORTING/UNLOADING rows carry the procurement batch number as their referenceNumber
+ * (their referenceId is the sorting/unloading record, which has no page of its own).
+ */
+export function referenceHref(
+  referenceType: string,
+  referenceId: string,
+  referenceNumber?: string,
+): string | null {
   switch (referenceType) {
     case "StockInward":
       return `/stock/inward/${referenceId}`;
@@ -96,6 +115,15 @@ export function referenceHref(referenceType: string, referenceId: string): strin
     case "OPENING_BALANCE":
     case "ITEM_OPENING_BALANCE":
       return `/items/${referenceId}`;
+    case "SORTING":
+    case "UNLOADING":
+      return referenceNumber
+        ? `/procurement/batches?q=${encodeURIComponent(referenceNumber)}`
+        : "/procurement/batches";
+    case "WASTAGE":
+      return referenceNumber ? `/wastage?q=${encodeURIComponent(referenceNumber)}` : "/wastage";
+    case "Trip":
+      return `/dispatch/trips/${referenceId}`;
     default:
       return null;
   }

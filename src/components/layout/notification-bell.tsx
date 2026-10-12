@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "@/lib/actions/notification-actions";
+import { notificationHref, NOTIFICATIONS_CHANGED_EVENT } from "@/lib/notification-href";
 import type { Notification } from "@prisma/client";
 
 const POLL_MS = 30_000;
@@ -23,6 +25,7 @@ export function NotificationBell() {
   const [unread, setUnread] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   useEffect(() => {
     let cancelled = false;
@@ -32,9 +35,12 @@ export function NotificationBell() {
     };
     load();
     const interval = setInterval(load, POLL_MS);
+    // Notifications marked read elsewhere (e.g. /notifications) refresh the badge now, not on the next poll.
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, load);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, load);
     };
   }, []);
 
@@ -98,6 +104,11 @@ export function NotificationBell() {
                           prev.map((x) => (x.id === n.id ? { ...x, isRead: true } : x)),
                         );
                       });
+                    }
+                    const href = notificationHref(n.entityType, n.entityId);
+                    if (href) {
+                      setOpen(false);
+                      router.push(href);
                     }
                   }}
                 >

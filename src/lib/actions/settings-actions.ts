@@ -23,6 +23,7 @@ export async function saveSystemSettingsAction(input: unknown): Promise<ActionRe
       [SETTING_KEYS.DOCUMENT_EXPIRY_WARNING_DAYS, data.documentExpiryWarningDays],
       [SETTING_KEYS.HIGH_WASTAGE_THRESHOLD_PERCENT, data.highWastageThresholdPercent],
       [SETTING_KEYS.CRATE_OVERDUE_THRESHOLD_DAYS, data.crateOverdueThresholdDays],
+      [SETTING_KEYS.REQUIRE_SEPARATE_APPROVER, data.requireSeparateApprover],
     ];
 
     const existingRows = await prisma.systemSetting.findMany({

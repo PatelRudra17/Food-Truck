@@ -1,9 +1,10 @@
 "use server";
 
-import { Prisma } from "@prisma/client";
+import { Prisma, SalesOrderStatus } from "@prisma/client";
 import { format } from "date-fns";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
+import { assertSeparateApprover } from "@/lib/services/approval-policy";
 import { writeAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -12,7 +13,6 @@ import { actionError, paginationSchema, paginationMeta } from "@/lib/validators/
 import { salesOrderSchema } from "@/lib/validators/sales-order";
 import { nextDocumentNumber } from "@/lib/numbering";
 import { notifyRoleByName } from "@/lib/services/notifications";
-import { getItemGradeStock } from "@/lib/services/produce-inventory";
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -35,10 +35,22 @@ export type SalesOrderRow = {
 
 const salesOrderListQuerySchema = paginationSchema.extend({
   q: z.string().optional(),
-  status: z.string().optional(),
+  // Unknown status values / unparseable dates are ignored rather than passed to Prisma (which would throw).
+  status: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v && (Object.values(SalesOrderStatus) as string[]).includes(v) ? (v as SalesOrderStatus) : undefined,
+    ),
   customerId: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z
+    .string()
+    .optional()
+    .transform((v) => (v && !Number.isNaN(new Date(v).getTime()) ? v : undefined)),
+  dateTo: z
+    .string()
+    .optional()
+    .transform((v) => (v && !Number.isNaN(new Date(v).getTime()) ? v : undefined)),
 });
 
 /**
@@ -53,18 +65,7 @@ export async function listSalesOrdersAction(
     const query = salesOrderListQuerySchema.parse(input);
 
     const where: Prisma.SalesOrderWhereInput = {
-      ...(query.status
-        ? {
-            status: query.status as
-              | "DRAFT"
-              | "PENDING"
-              | "APPROVED"
-              | "READY_FOR_DISPATCH"
-              | "PARTIALLY_FULFILLED"
-              | "COMPLETED"
-              | "CANCELLED",
-          }
-        : {}),
+      ...(query.status ? { status: query.status } : {}),
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.dateFrom || query.dateTo
         ? {
@@ -133,15 +134,19 @@ export async function listSalesOrdersAction(
  * passed here is a form-only concept used purely for this stock preview, not
  * persisted anywhere.
  */
+/** Grade-wise stock for an item summed across all warehouses — trips can draw on any of them. */
 export async function getSalesOrderItemStockAction(
   itemId: string,
-  warehouseId: string,
 ): Promise<ActionResult<{ grade: string; quantity: number }[]>> {
   try {
     await requirePermission("SALES_ORDER_VIEW");
-    if (!itemId || !warehouseId) return { ok: true, data: [] };
-    const balances = await getItemGradeStock(itemId, warehouseId);
-    return { ok: true, data: balances };
+    if (!itemId) return { ok: true, data: [] };
+    const totals = await prisma.itemGradeStock.groupBy({
+      by: ["grade"],
+      where: { itemId },
+      _sum: { quantity: true },
+    });
+    return { ok: true, data: totals.map((t) => ({ grade: t.grade, quantity: Number(t._sum.quantity ?? 0) })) };
   } catch (error) {
     return actionError(error);
   }
@@ -271,6 +276,9 @@ async function decideSalesOrderApproval(
       if (!approval) {
         throw new Error("No pending approval record was found for this sales order.");
       }
+      if (decision === "APPROVED") {
+        await assertSeparateApprover(tx, user.id, [so.createdById, approval.requestedById]);
+      }
 
       await tx.approval.update({
         where: { id: approval.id },
@@ -335,8 +343,21 @@ export async function cancelSalesOrderAction(id: string): Promise<ActionResult<{
     const user = await requirePermission("SALES_ORDER_EDIT");
     const so = await prisma.salesOrder.findUniqueOrThrow({ where: { id }, include: { items: true } });
 
-    if (!["DRAFT", "PENDING", "APPROVED"].includes(so.status)) {
+    // Approval moves an SO straight to READY_FOR_DISPATCH, so that must stay cancellable
+    // until a trip has been raised against it.
+    if (!["DRAFT", "PENDING", "APPROVED", "READY_FOR_DISPATCH"].includes(so.status)) {
       return { ok: false, error: `A sales order in ${so.status} status cannot be cancelled.` };
+    }
+
+    const activeTrips = await prisma.trip.findMany({
+      where: { salesOrderId: id, status: { not: "CANCELLED" } },
+      select: { tripNumber: true },
+    });
+    if (activeTrips.length > 0) {
+      return {
+        ok: false,
+        error: `Trip(s) ${activeTrips.map((t) => t.tripNumber).join(", ")} reference this sales order. Cancel them first.`,
+      };
     }
 
     const anyFulfilled = so.items.some((item) => Number(item.fulfilledQty) > 0);
@@ -347,7 +368,20 @@ export async function cancelSalesOrderAction(id: string): Promise<ActionResult<{
       };
     }
 
-    const updated = await prisma.salesOrder.update({ where: { id }, data: { status: "CANCELLED" } });
+    const updated = await prisma.$transaction(async (tx) => {
+      // ApprovalDecision has no CANCELLED value, so a pending approval is closed
+      // as REJECTED with an explanatory comment rather than left PENDING forever.
+      await tx.approval.updateMany({
+        where: { salesOrderFk: id, decision: "PENDING" },
+        data: {
+          decision: "REJECTED",
+          decidedById: user.id,
+          decidedAt: new Date(),
+          comment: "Closed automatically: sales order was cancelled.",
+        },
+      });
+      return tx.salesOrder.update({ where: { id }, data: { status: "CANCELLED" } });
+    });
 
     await writeAuditLog({
       userId: user.id,
@@ -360,6 +394,7 @@ export async function cancelSalesOrderAction(id: string): Promise<ActionResult<{
 
     revalidatePath("/sales/orders");
     revalidatePath(`/sales/orders/${id}`);
+    revalidatePath("/settings/approvals");
     return { ok: true, data: { id: updated.id } };
   } catch (error) {
     return actionError(error);

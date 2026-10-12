@@ -28,8 +28,8 @@ type ItemOption = {
   name: string;
   sku: string;
   unit: string;
-  warehouseId: string;
-  currentStock: number;
+  /** Stock on hand per warehouse id (only warehouses holding some). */
+  stockByWarehouse: Record<string, number>;
 };
 
 type FormValues = z.infer<typeof createTransferSchema>;
@@ -58,8 +58,12 @@ export function TransferForm({ warehouses, items }: { warehouses: WarehouseOptio
   const { fields, append, remove } = useFieldArray({ control, name: "items" });
   const sourceWarehouseId = watch("sourceWarehouseId");
 
+  // Items with stock in the chosen source warehouse, with that warehouse's balance.
   const availableItems = useMemo(
-    () => items.filter((i) => i.warehouseId === sourceWarehouseId),
+    () =>
+      items
+        .filter((i) => (i.stockByWarehouse[sourceWarehouseId] ?? 0) > 0)
+        .map((i) => ({ ...i, currentStock: i.stockByWarehouse[sourceWarehouseId] })),
     [items, sourceWarehouseId],
   );
 
@@ -74,6 +78,8 @@ export function TransferForm({ warehouses, items }: { warehouses: WarehouseOptio
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceWarehouseId]);
+
+  const watchedItems = watch("items");
 
   async function onSubmit(values: FormValues) {
     const result = await createTransferAction(values);
@@ -214,6 +220,16 @@ export function TransferForm({ warehouses, items }: { warehouses: WarehouseOptio
                   {errors.items?.[index]?.quantity && (
                     <p className="text-xs text-destructive">{errors.items[index]?.quantity?.message}</p>
                   )}
+                  {(() => {
+                    const line = watchedItems?.[index];
+                    const selected = line?.itemId ? availableItems.find((i) => i.id === line.itemId) : undefined;
+                    const qty = Number(line?.quantity);
+                    return selected && Number.isFinite(qty) && qty > selected.currentStock ? (
+                      <p className="text-xs text-destructive">
+                        Exceeds available stock ({selected.currentStock.toLocaleString()} {selected.unit})
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
 
                 <div className="flex flex-col gap-1.5">

@@ -14,8 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Field, FieldLabel, FieldError, FieldGroup } from "@/components/ui/field";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { procurementSchema, type ProcurementInput } from "@/lib/validators/procurement";
-import { createProcurementAction } from "@/lib/actions/procurement-actions";
+import { procurementSchema, isKgUnit, type ProcurementInput } from "@/lib/validators/procurement";
+import { createProcurementAction, updateProcurementAction } from "@/lib/actions/procurement-actions";
 
 const NONE = "__none__";
 
@@ -44,7 +44,9 @@ function round2(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-type ProcurementFormInput = z.input<typeof procurementSchema>;
+export type ProcurementFormInput = z.input<typeof procurementSchema>;
+
+const EMPTY_LINE = { itemId: "", quantity: "", unit: "", weight: "", quality: "", purchasePrice: "" };
 
 export function ProcurementForm({
   suppliers,
@@ -54,7 +56,11 @@ export function ProcurementForm({
   gateEntries,
   purchaseOrders,
   items,
+  procurementId,
+  initialValues,
 }: {
+  procurementId?: string;
+  initialValues?: ProcurementFormInput;
   suppliers: SupplierOption[];
   warehouses: WarehouseOption[];
   vehicles: VehicleOption[];
@@ -77,7 +83,7 @@ export function ProcurementForm({
     formState: { errors, isSubmitting },
   } = useForm<ProcurementFormInput, unknown, ProcurementInput>({
     resolver: zodResolver(procurementSchema),
-    defaultValues: {
+    defaultValues: initialValues ?? {
       supplierId: "",
       date: new Date().toISOString().slice(0, 10),
       warehouseId: "",
@@ -87,13 +93,15 @@ export function ProcurementForm({
       purchaseOrderId: "",
       invoiceNumber: "",
       remarks: "",
-      items: [{ itemId: "", quantity: 1, unit: "", weight: 1, quality: "", purchasePrice: undefined }],
+      items: [EMPTY_LINE],
     },
   });
 
   const { fields, append, remove } = useFieldArray({ control, name: "items" });
   const watchedItems = watch("items");
   const selectedSupplierId = watch("supplierId");
+  const selectedGateEntry = gateEntriesById.get(watch("gateEntryId") ?? "");
+  const supplierPurchaseOrders = purchaseOrders.filter((po) => po.supplierId === selectedSupplierId);
 
   const grandTotal = round2(
     watchedItems.reduce((sum, line) => {
@@ -114,24 +122,34 @@ export function ProcurementForm({
     }
   }
 
+  function handleSupplierChange(supplierId: string) {
+    setValue("supplierId", supplierId, { shouldValidate: true });
+    // A purchase order from another supplier can't stay linked.
+    const poId = getValues("purchaseOrderId");
+    if (poId && purchaseOrders.find((po) => po.id === poId)?.supplierId !== supplierId) {
+      setValue("purchaseOrderId", "");
+    }
+  }
+
   function handleGateEntrySelect(gateEntryId: string) {
-    setValue("gateEntryId", gateEntryId === NONE ? "" : gateEntryId);
-    if (gateEntryId === NONE) return;
+    setValue("gateEntryId", gateEntryId, { shouldValidate: true });
     const entry = gateEntriesById.get(gateEntryId);
     if (entry) {
+      // Vehicle, driver and (when recorded) supplier always come from the truck at the gate.
       setValue("vehicleId", entry.vehicleId);
       setValue("driverId", entry.driverId);
-      if (entry.supplierId && !getValues("supplierId")) {
-        setValue("supplierId", entry.supplierId);
-      }
+      if (entry.supplierId) handleSupplierChange(entry.supplierId);
     }
   }
 
   async function onSubmit(values: ProcurementInput) {
-    const result = await createProcurementAction(values);
+    const result = procurementId
+      ? await updateProcurementAction(procurementId, values)
+      : await createProcurementAction(values);
     if (result.ok) {
-      toast.success("Procurement created as draft.");
+      toast.success(procurementId ? "Procurement updated." : "Procurement created as draft.");
       router.push(`/procurement/${result.data.id}`);
+      router.refresh();
     } else {
       toast.error(result.error);
     }
@@ -161,7 +179,11 @@ export function ProcurementForm({
                   name="supplierId"
                   control={control}
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    <Select
+                      value={field.value}
+                      onValueChange={handleSupplierChange}
+                      disabled={!!selectedGateEntry?.supplierId}
+                    >
                       <SelectTrigger id="supplierId" className="w-full" aria-invalid={!!errors.supplierId}>
                         <SelectValue placeholder="Select supplier" />
                       </SelectTrigger>
@@ -208,17 +230,16 @@ export function ProcurementForm({
               </Field>
 
               <Field>
-                <FieldLabel htmlFor="gateEntryId">Gate Entry (optional)</FieldLabel>
+                <FieldLabel htmlFor="gateEntryId">Gate Entry *</FieldLabel>
                 <Controller
                   name="gateEntryId"
                   control={control}
                   render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={handleGateEntrySelect}>
-                      <SelectTrigger id="gateEntryId" className="w-full">
-                        <SelectValue placeholder="None" />
+                    <Select value={field.value} onValueChange={handleGateEntrySelect}>
+                      <SelectTrigger id="gateEntryId" className="w-full" aria-invalid={!!errors.gateEntryId}>
+                        <SelectValue placeholder={gateEntries.length ? "Select gate entry" : "No trucks inside"} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
                         {gateEntries.map((g) => (
                           <SelectItem key={g.id} value={g.id}>
                             {g.gateEntryNumber}
@@ -228,20 +249,20 @@ export function ProcurementForm({
                     </Select>
                   )}
                 />
+                <FieldError errors={[errors.gateEntryId]} />
               </Field>
 
               <Field>
-                <FieldLabel htmlFor="vehicleId">Vehicle (optional)</FieldLabel>
+                <FieldLabel htmlFor="vehicleId">Vehicle (from gate entry)</FieldLabel>
                 <Controller
                   name="vehicleId"
                   control={control}
                   render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={(v) => field.onChange(v === NONE ? "" : v)}>
+                    <Select value={field.value} disabled>
                       <SelectTrigger id="vehicleId" className="w-full">
-                        <SelectValue placeholder="None" />
+                        <SelectValue placeholder="Select a gate entry" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
                         {vehicles.map((v) => (
                           <SelectItem key={v.id} value={v.id}>
                             {v.vehicleNumber} ({v.vehicleType})
@@ -254,17 +275,16 @@ export function ProcurementForm({
               </Field>
 
               <Field>
-                <FieldLabel htmlFor="driverId">Driver (optional)</FieldLabel>
+                <FieldLabel htmlFor="driverId">Driver (from gate entry)</FieldLabel>
                 <Controller
                   name="driverId"
                   control={control}
                   render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={(v) => field.onChange(v === NONE ? "" : v)}>
+                    <Select value={field.value} disabled>
                       <SelectTrigger id="driverId" className="w-full">
-                        <SelectValue placeholder="None" />
+                        <SelectValue placeholder="Select a gate entry" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
                         {drivers.map((d) => (
                           <SelectItem key={d.id} value={d.id}>
                             {d.fullName} ({d.mobile})
@@ -282,13 +302,17 @@ export function ProcurementForm({
                   name="purchaseOrderId"
                   control={control}
                   render={({ field }) => (
-                    <Select value={field.value || NONE} onValueChange={(v) => field.onChange(v === NONE ? "" : v)}>
+                    <Select
+                      value={field.value || NONE}
+                      onValueChange={(v) => field.onChange(v === NONE ? "" : v)}
+                      disabled={!selectedSupplierId}
+                    >
                       <SelectTrigger id="purchaseOrderId" className="w-full">
                         <SelectValue placeholder="None" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NONE}>None</SelectItem>
-                        {purchaseOrders.map((po) => (
+                        {supplierPurchaseOrders.map((po) => (
                           <SelectItem key={po.id} value={po.id}>
                             {po.poNumber}
                           </SelectItem>
@@ -361,13 +385,19 @@ export function ProcurementForm({
                       </TableCell>
                       <TableCell>
                         <Input type="number" step="0.001" min="0" {...register(`items.${index}.quantity`)} />
+                        <FieldError errors={[errors.items?.[index]?.quantity]} />
                       </TableCell>
                       <TableCell>
                         <Input {...register(`items.${index}.unit`)} />
                         <FieldError errors={[errors.items?.[index]?.unit]} />
                       </TableCell>
                       <TableCell>
-                        <Input type="number" step="0.001" min="0" {...register(`items.${index}.weight`)} />
+                        {isKgUnit(line?.unit) ? (
+                          // For kg items the weight is the quantity.
+                          <Input value={line?.quantity == null ? "" : String(line.quantity)} readOnly tabIndex={-1} />
+                        ) : (
+                          <Input type="number" step="0.001" min="0" {...register(`items.${index}.weight`)} />
+                        )}
                         <FieldError errors={[errors.items?.[index]?.weight]} />
                       </TableCell>
                       <TableCell>
@@ -404,9 +434,7 @@ export function ProcurementForm({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() =>
-              append({ itemId: "", quantity: 1, unit: "", weight: 1, quality: "", purchasePrice: undefined })
-            }
+            onClick={() => append(EMPTY_LINE)}
           >
             <Plus className="h-4 w-4" /> Add Line
           </Button>
@@ -421,11 +449,21 @@ export function ProcurementForm({
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={() => router.push("/procurement")}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => router.push(procurementId ? `/procurement/${procurementId}` : "/procurement")}
+        >
           Cancel
         </Button>
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Creating..." : "Create Procurement"}
+          {procurementId
+            ? isSubmitting
+              ? "Saving..."
+              : "Save Changes"
+            : isSubmitting
+              ? "Creating..."
+              : "Create Procurement"}
         </Button>
       </div>
     </form>

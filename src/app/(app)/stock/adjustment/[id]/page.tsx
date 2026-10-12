@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { requirePermission, hasPermission } from "@/lib/auth/guard";
 import { prisma } from "@/lib/prisma";
+import { getWarehouseStock } from "@/lib/services/inventory";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,7 +30,11 @@ export default async function StockAdjustmentDetailPage({ params }: { params: Pr
 
   if (!adjustment) notFound();
 
-  const difference = Number(adjustment.difference);
+  // While pending, the stored difference is only a request-time snapshot; approval
+  // recomputes it against live stock, so show the difference that would apply now.
+  const isPending = adjustment.status === "PENDING_APPROVAL";
+  const stockNow = isPending ? Number(await getWarehouseStock(prisma, adjustment.itemId, adjustment.warehouseId)) : 0;
+  const difference = isPending ? Number(adjustment.physicalQty) - stockNow : Number(adjustment.difference);
   const differenceLabel = `${difference > 0 ? "+" : ""}${difference.toLocaleString()} ${adjustment.item.unit}`;
 
   return (
@@ -43,6 +48,7 @@ export default async function StockAdjustmentDetailPage({ params }: { params: Pr
             status={adjustment.status}
             canApprove={hasPermission(user, "STOCK_ADJUSTMENT_APPROVE")}
             differenceLabel={differenceLabel}
+            targetLabel={`${Number(adjustment.physicalQty).toLocaleString()} ${adjustment.item.unit}`}
           />
         }
       />
@@ -72,11 +78,21 @@ export default async function StockAdjustmentDetailPage({ params }: { params: Pr
               <p className="text-sm font-medium">{adjustment.warehouse.name}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Current Qty (at request)</p>
+              <p className="text-xs text-muted-foreground">
+                System Qty ({adjustment.status === "APPROVED" ? "at approval" : "at request"})
+              </p>
               <p className="text-sm font-medium tabular-nums">
                 {Number(adjustment.currentQty).toLocaleString()} {adjustment.item.unit}
               </p>
             </div>
+            {isPending && (
+              <div>
+                <p className="text-xs text-muted-foreground">System Qty (now)</p>
+                <p className="text-sm font-medium tabular-nums">
+                  {stockNow.toLocaleString()} {adjustment.item.unit}
+                </p>
+              </div>
+            )}
             <div>
               <p className="text-xs text-muted-foreground">Physical Qty (counted)</p>
               <p className="text-sm font-medium tabular-nums">
@@ -84,7 +100,9 @@ export default async function StockAdjustmentDetailPage({ params }: { params: Pr
               </p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Difference</p>
+              <p className="text-xs text-muted-foreground">
+                {isPending ? "Difference (if approved now)" : "Difference"}
+              </p>
               <p
                 className={cn(
                   "text-sm font-semibold tabular-nums",
@@ -130,7 +148,7 @@ export default async function StockAdjustmentDetailPage({ params }: { params: Pr
                       Decided by {approval.decidedBy.name} on {format(approval.decidedAt, "dd MMM yyyy HH:mm")}
                     </p>
                   )}
-                  {approval.comment && <p className="text-xs italic">"{approval.comment}"</p>}
+                  {approval.comment && <p className="text-xs italic">&ldquo;{approval.comment}&rdquo;</p>}
                 </div>
               ))
             )}

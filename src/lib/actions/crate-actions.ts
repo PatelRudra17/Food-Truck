@@ -7,14 +7,26 @@ import { writeAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
-import { crateSchema, crateStatusChangeSchema } from "@/lib/validators/crate";
+import { crateSchema, crateStatusChangeSchema, markCratesCleanedSchema } from "@/lib/validators/crate";
 
 /** Auto-generates the next sequential `CRT-####` crate code. Master data only —
  * not high-volume enough to need `nextDocumentNumber`/`NumberSequence`, but padded
  * to 4 digits since a warehouse can hold thousands of physical crates. */
 async function generateCrateCode(tx: Prisma.TransactionClient): Promise<string> {
-  const count = await tx.crate.count();
-  return `CRT-${String(count + 1).padStart(4, "0")}`;
+  // Highest existing numeric suffix (not a row count), so gaps can't produce a duplicate.
+  const [row] = await tx.$queryRaw<{ max: number | null }[]>`
+    SELECT MAX(CAST(SUBSTRING("crateCode" FROM 5) AS INTEGER)) AS max
+    FROM "Crate"
+    WHERE "crateCode" ~ '^CRT-[0-9]{1,9}$'`;
+  return `CRT-${String((row?.max ?? 0) + 1).padStart(4, "0")}`;
+}
+
+/** Concurrent creates can still race to the same code. A unique-constraint failure aborts the
+ * whole Postgres transaction, so each retry must run in a fresh transaction. */
+const MAX_CODE_ATTEMPTS = 5;
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 export async function createCrateAction(input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -27,12 +39,12 @@ export async function createCrateAction(input: unknown): Promise<ActionResult<{ 
       if (!customer) throw new Error("Selected customer does not exist.");
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const crateCode = await generateCrateCode(tx);
-        try {
-          return await tx.crate.create({
+    let created: Prisma.CrateGetPayload<object> | undefined;
+    for (let attempt = 1; !created; attempt++) {
+      try {
+        created = await prisma.$transaction(async (tx) => {
+          const crateCode = await generateCrateCode(tx);
+          return tx.crate.create({
             data: {
               crateCode,
               crateType: data.crateType,
@@ -42,16 +54,12 @@ export async function createCrateAction(input: unknown): Promise<ActionResult<{ 
               condition: data.condition,
             },
           });
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-            lastError = error;
-            continue;
-          }
-          throw error;
-        }
+        });
+      } catch (error) {
+        if (isUniqueViolation(error) && attempt < MAX_CODE_ATTEMPTS) continue;
+        throw error;
       }
-      throw lastError instanceof Error ? lastError : new Error("Failed to generate a unique crate code.");
-    });
+    }
 
     await writeAuditLog({
       userId: user.id,
@@ -144,6 +152,46 @@ export async function changeCrateStatusAction(
     revalidatePath("/crates");
     revalidatePath(`/crates/${id}`);
     return { ok: true, data: { id: updated.id } };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
+/** Returned crates land in CLEANING; this moves them back to AVAILABLE (the
+ * Cleaning module was removed). Only crates still in CLEANING are touched, and
+ * each one gets its own audit entry since AuditLog is the crate movement history. */
+export async function markCratesCleanedAction(input: unknown): Promise<ActionResult<{ count: number }>> {
+  try {
+    const user = await requirePermission("CRATE_EDIT");
+    const data = markCratesCleanedSchema.parse(input ?? {});
+
+    const crates = await prisma.$transaction(async (tx) => {
+      const targets = await tx.crate.findMany({
+        where: { status: "CLEANING", ...(data.ids ? { id: { in: data.ids } } : {}) },
+        select: { id: true },
+      });
+      if (targets.length === 0) throw new Error("No crates are waiting for cleaning.");
+      await tx.crate.updateMany({
+        where: { id: { in: targets.map((c) => c.id) }, status: "CLEANING" },
+        data: { status: "AVAILABLE" },
+      });
+      return targets;
+    });
+
+    for (const crate of crates) {
+      await writeAuditLog({
+        userId: user.id,
+        action: "EDIT",
+        entityType: "Crate",
+        entityId: crate.id,
+        oldValues: { status: "CLEANING" },
+        newValues: { status: "AVAILABLE", reason: "Cleaned" },
+      });
+    }
+
+    revalidatePath("/crates");
+    revalidatePath("/crates/[id]", "page");
+    return { ok: true, data: { count: crates.length } };
   } catch (error) {
     return actionError(error);
   }

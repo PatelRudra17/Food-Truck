@@ -1,7 +1,10 @@
 import "server-only";
-import { Prisma } from "@prisma/client";
+import { format } from "date-fns";
+import { Prisma, LedgerTxnType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getOverdueDays } from "@/lib/services/crate-alerts";
+import type { PermissionCode } from "@/lib/auth/permissions";
+import { likePattern, matchesQuery, normalizeQuery, paginateRows, parseReportPage } from "@/lib/services/report-utils";
 
 // ==================================================
 // Types shared by the report landing page, the
@@ -44,7 +47,6 @@ export const REPORT_TYPES = [
   "crate-customer-balance",
   "fuel",
   "maintenance",
-  "attendance",
   "payroll-summary",
   "audit-log",
 ] as const;
@@ -108,14 +110,17 @@ export interface ReportResult {
   total: number;
   page: number;
   pageSize: number;
-  /** Only populated for warehouse-stock when a warehouseId filter is supplied. */
-  breakdown?: Record<string, unknown>[];
+  /** Overrides REPORT_COLUMNS[type] when a report's shape depends on its filters. */
+  columns?: ReportColumn[];
 }
 
-function parsePage(filters: ReportFilters, defaultPageSize = 20, maxPageSize = 5000) {
-  const page = Math.max(1, Number(filters.page) || 1);
-  const pageSize = Math.min(maxPageSize, Math.max(1, Number(filters.pageSize) || defaultPageSize));
-  return { page, pageSize, skip: (page - 1) * pageSize, take: pageSize };
+function parsePage(filters: ReportFilters) {
+  return parseReportPage(filters);
+}
+
+/** Case-insensitive "contains" condition for the report search box. */
+function ci(q: string) {
+  return { contains: q, mode: "insensitive" as const };
 }
 
 function parseDateRange(filters: ReportFilters): { gte?: Date; lte?: Date } | undefined {
@@ -225,7 +230,6 @@ export const REPORT_GROUPS: { title: string; reports: ReportDef[] }[] = [
   {
     title: "Workforce",
     reports: [
-      { type: "attendance", label: "Attendance", description: "Daily attendance for employees and labour." },
       { type: "payroll-summary", label: "Payroll Summary", description: "Salary records, earnings and payment status." },
     ],
   },
@@ -234,6 +238,53 @@ export const REPORT_GROUPS: { title: string; reports: ReportDef[] }[] = [
     reports: [{ type: "audit-log", label: "Audit Log", description: "System-wide audit trail (requires audit log access)." }],
   },
 ];
+
+/**
+ * The module permission each report needs on top of REPORT_VIEW / REPORT_EXPORT,
+ * so a report never shows data from a module the user can't open (e.g. salaries).
+ */
+const REPORT_MODULE_PERMISSION: Record<ReportType, PermissionCode> = {
+  "current-stock": "ITEM_VIEW",
+  "stock-ledger": "INVENTORY_LEDGER_VIEW",
+  "warehouse-stock": "ITEM_VIEW",
+  "item-wise": "ITEM_VIEW",
+  "category-wise": "ITEM_VIEW",
+  "supplier-wise": "SUPPLIER_VIEW",
+  "date-wise": "INVENTORY_LEDGER_VIEW",
+  "low-stock": "ITEM_VIEW",
+  "out-of-stock": "ITEM_VIEW",
+  "damaged-stock": "INVENTORY_LEDGER_VIEW",
+  "expired-stock": "ITEM_VIEW",
+  inward: "STOCK_INWARD_VIEW",
+  outward: "STOCK_OUTWARD_VIEW",
+  transfer: "STOCK_TRANSFER_VIEW",
+  adjustment: "STOCK_ADJUSTMENT_VIEW",
+  "vehicle-entry-exit": "GATE_ENTRY_VIEW",
+  "driver-list": "DRIVER_VIEW",
+  "vehicle-list": "VEHICLE_VIEW",
+  "driver-document-expiry": "DRIVER_VIEW",
+  "vehicle-document-expiry": "VEHICLE_VIEW",
+  fuel: "FUEL_VIEW",
+  maintenance: "MAINTENANCE_VIEW",
+  "purchase-order": "PURCHASE_ORDER_VIEW",
+  procurement: "PROCUREMENT_VIEW",
+  "procurement-batch": "PROCUREMENT_VIEW",
+  "vendor-wise-procurement": "PROCUREMENT_VIEW",
+  "sorting-yield": "SORTING_VIEW",
+  wastage: "WASTAGE_VIEW",
+  "sales-order": "SALES_ORDER_VIEW",
+  "customer-wise-sales": "SALES_ORDER_VIEW",
+  trip: "TRIP_VIEW",
+  "crate-status": "CRATE_VIEW",
+  "crate-overdue": "CRATE_VIEW",
+  "crate-customer-balance": "CRATE_VIEW",
+  "payroll-summary": "PAYROLL_VIEW",
+  "audit-log": "VIEW_AUDIT_LOG",
+};
+
+export function canAccessReport(type: ReportType, permissions: readonly string[]): boolean {
+  return permissions.includes(REPORT_MODULE_PERMISSION[type]);
+}
 
 export function getReportDef(type: ReportType): ReportDef {
   for (const group of REPORT_GROUPS) {
@@ -530,14 +581,6 @@ export const REPORT_COLUMNS: Record<ReportType, ReportColumn[]> = {
     { key: "vehicleMaintenanceState", label: "Schedule Status" },
     { key: "nextServiceDate", label: "Next Service Date" },
   ],
-  attendance: [
-    { key: "date", label: "Date" },
-    { key: "personName", label: "Name" },
-    { key: "personType", label: "Type" },
-    { key: "shift", label: "Shift" },
-    { key: "status", label: "Status" },
-    { key: "overtimeHours", label: "Overtime Hours" },
-  ],
   "payroll-summary": [
     { key: "personName", label: "Name" },
     { key: "period", label: "Period" },
@@ -576,62 +619,66 @@ export interface ReportFilterConfig {
 
 export const REPORT_FILTER_CONFIG: Record<ReportType, ReportFilterConfig> = {
   "current-stock": { warehouse: true, category: true, q: true },
-  "stock-ledger": { item: true, warehouse: true, ledgerType: true, dateRange: true },
-  inward: { status: ["DRAFT", "PENDING", "APPROVED", "RECEIVED", "CANCELLED"], dateRange: true },
-  outward: { status: ["DRAFT", "PENDING_APPROVAL", "APPROVED", "ISSUED", "REJECTED", "CANCELLED"], dateRange: true },
-  transfer: { status: ["DRAFT", "REQUESTED", "APPROVED", "DISPATCHED", "RECEIVED", "REJECTED", "CANCELLED"], dateRange: true },
-  adjustment: { status: ["DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED"], dateRange: true },
-  "warehouse-stock": { warehouse: true },
-  "item-wise": { warehouse: true, category: true, dateRange: true },
-  "category-wise": {},
-  "supplier-wise": {},
+  "stock-ledger": { q: true, item: true, warehouse: true, ledgerType: true, dateRange: true },
+  inward: { q: true, status: ["DRAFT", "PENDING", "APPROVED", "RECEIVED", "CANCELLED"], dateRange: true },
+  outward: { q: true, status: ["DRAFT", "PENDING_APPROVAL", "APPROVED", "ISSUED", "REJECTED", "CANCELLED"], dateRange: true },
+  transfer: { q: true, status: ["DRAFT", "REQUESTED", "APPROVED", "DISPATCHED", "RECEIVED", "REJECTED", "CANCELLED"], dateRange: true },
+  adjustment: { q: true, status: ["DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED"], dateRange: true },
+  "warehouse-stock": { warehouse: true, q: true },
+  "item-wise": { warehouse: true, category: true, dateRange: true, q: true },
+  "category-wise": { q: true },
+  "supplier-wise": { q: true },
   "date-wise": { dateRange: true },
-  "low-stock": { warehouse: true, category: true },
-  "out-of-stock": { warehouse: true, category: true },
-  "damaged-stock": { warehouse: true, item: true, dateRange: true },
-  "expired-stock": { item: true },
-  "vehicle-entry-exit": { status: ["INSIDE", "OUT"], dateRange: true },
+  "low-stock": { warehouse: true, category: true, q: true },
+  "out-of-stock": { warehouse: true, category: true, q: true },
+  "damaged-stock": { warehouse: true, item: true, dateRange: true, q: true },
+  "expired-stock": { item: true, q: true },
+  "vehicle-entry-exit": { status: ["INSIDE", "OUT"], dateRange: true, q: true },
   "driver-list": { status: ["ACTIVE", "INACTIVE", "ON_LEAVE"], q: true },
   "vehicle-list": { status: ["AVAILABLE", "INSIDE", "OUTSIDE", "ON_TRIP", "MAINTENANCE", "INACTIVE"], q: true },
-  "driver-document-expiry": { windowDays: true },
-  "vehicle-document-expiry": { windowDays: true },
+  "driver-document-expiry": { windowDays: true, q: true },
+  "vehicle-document-expiry": { windowDays: true, q: true },
   "purchase-order": {
+    q: true,
     supplier: true,
     status: ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PARTIALLY_RECEIVED", "RECEIVED", "CANCELLED"],
     dateRange: true,
   },
   procurement: {
+    q: true,
     status: ["DRAFT", "SUBMITTED", "CANCELLED"],
     supplier: true,
     dateRange: true,
   },
   "procurement-batch": {
+    q: true,
     status: ["PENDING_UNLOADING", "PENDING_SORTING", "SORTED", "CLOSED"],
     item: true,
     supplier: true,
     dateRange: true,
   },
-  "vendor-wise-procurement": {},
-  "sorting-yield": { item: true, dateRange: true },
-  wastage: { status: ["SORTING", "WAREHOUSE"], item: true, dateRange: true },
+  "vendor-wise-procurement": { q: true },
+  "sorting-yield": { item: true, dateRange: true, q: true },
+  wastage: { status: ["SORTING", "WAREHOUSE"], item: true, dateRange: true, q: true },
   "sales-order": {
+    q: true,
     status: ["DRAFT", "PENDING", "APPROVED", "READY_FOR_DISPATCH", "PARTIALLY_FULFILLED", "COMPLETED", "CANCELLED"],
     customer: true,
     dateRange: true,
   },
-  "customer-wise-sales": {},
+  "customer-wise-sales": { q: true },
   trip: {
+    q: true,
     status: ["CREATED", "APPROVED", "LOADING", "LOADED", "DISPATCHED", "DELIVERED", "RETURNED", "CANCELLED"],
     dateRange: true,
   },
-  "crate-status": { status: ["AVAILABLE", "LOADED", "WITH_CUSTOMER", "RETURNED", "DAMAGED", "MISSING", "CLEANING", "READY"] },
-  "crate-overdue": {},
-  "crate-customer-balance": { customer: true },
-  fuel: { status: ["NORMAL", "ANOMALY"], dateRange: true },
-  maintenance: { status: ["UP_TO_DATE", "DUE_SOON", "DUE", "OVERDUE"], dateRange: true },
-  attendance: { status: ["PRESENT", "ABSENT", "HALF_DAY"], dateRange: true },
-  "payroll-summary": { status: ["PENDING", "PAID"], dateRange: true },
-  "audit-log": { auditUser: true, auditAction: true, auditEntityType: true, dateRange: true },
+  "crate-status": { q: true, status: ["AVAILABLE", "LOADED", "WITH_CUSTOMER", "RETURNED", "DAMAGED", "MISSING", "CLEANING", "READY"] },
+  "crate-overdue": { q: true },
+  "crate-customer-balance": { customer: true, q: true },
+  fuel: { status: ["NORMAL", "ANOMALY"], dateRange: true, q: true },
+  maintenance: { status: ["UP_TO_DATE", "DUE_SOON", "DUE", "OVERDUE"], dateRange: true, q: true },
+  "payroll-summary": { status: ["PENDING", "PAID"], dateRange: true, q: true },
+  "audit-log": { q: true, auditUser: true, auditAction: true, auditEntityType: true, dateRange: true },
 };
 
 // ==================================================
@@ -641,7 +688,8 @@ export const REPORT_FILTER_CONFIG: Record<ReportType, ReportFilterConfig> = {
 async function getCurrentStockReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.ItemWhereInput = { isActive: true };
-  if (filters.warehouseId) where.warehouseId = filters.warehouseId;
+  // With a warehouse chosen, list stock held in that warehouse rather than items whose home it is.
+  if (filters.warehouseId) where.warehouseStocks = { some: { warehouseId: filters.warehouseId, quantity: { not: 0 } } };
   if (filters.categoryId) where.categoryId = filters.categoryId;
   if (filters.q) {
     where.OR = [
@@ -650,9 +698,20 @@ async function getCurrentStockReport(filters: ReportFilters): Promise<ReportResu
       { itemCode: { contains: filters.q, mode: "insensitive" } },
     ];
   }
-  const [total, items] = await Promise.all([
+  const [total, items, warehouse] = await Promise.all([
     prisma.item.count({ where }),
-    prisma.item.findMany({ where, include: { category: true, warehouse: true }, orderBy: { name: "asc" }, skip, take }),
+    prisma.item.findMany({
+      where,
+      include: {
+        category: true,
+        warehouse: true,
+        warehouseStocks: filters.warehouseId ? { where: { warehouseId: filters.warehouseId } } : false,
+      },
+      orderBy: { name: "asc" },
+      skip,
+      take,
+    }),
+    filters.warehouseId ? prisma.warehouse.findUnique({ where: { id: filters.warehouseId } }) : null,
   ]);
   const rows = items.map((i) => ({
     id: i.id,
@@ -660,9 +719,9 @@ async function getCurrentStockReport(filters: ReportFilters): Promise<ReportResu
     name: i.name,
     sku: i.sku,
     category: i.category.name,
-    warehouse: i.warehouse?.name ?? "—",
+    warehouse: warehouse ? warehouse.name : (i.warehouse?.name ?? "—"),
     unit: i.unit,
-    currentStock: num(i.currentStock),
+    currentStock: warehouse ? num(i.warehouseStocks[0]?.quantity) : num(i.currentStock),
     minStock: num(i.minStock),
     reorderLevel: num(i.reorderLevel),
   }));
@@ -675,6 +734,13 @@ async function getStockLedgerReport(filters: ReportFilters): Promise<ReportResul
   if (filters.itemId) where.itemId = filters.itemId;
   if (filters.warehouseId) where.warehouseId = filters.warehouseId;
   if (filters.ledgerType) where.transactionType = filters.ledgerType as Prisma.InventoryLedgerWhereInput["transactionType"];
+  if (filters.q) {
+    where.OR = [
+      { item: { name: ci(filters.q) } },
+      { item: { sku: ci(filters.q) } },
+      { referenceNumber: ci(filters.q) },
+    ];
+  }
   const dateRange = parseDateRange(filters);
   if (dateRange) where.createdAt = dateRange;
   const [total, rows0] = await Promise.all([
@@ -709,6 +775,13 @@ async function getInwardReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.StockInwardWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.StockInwardWhereInput["status"];
+  if (filters.q) {
+    where.OR = [
+      { inwardNumber: ci(filters.q) },
+      { supplier: { companyName: ci(filters.q) } },
+      { items: { some: { item: { name: ci(filters.q) } } } },
+    ];
+  }
   if (filters.warehouseId) where.warehouseId = filters.warehouseId;
   const dateRange = parseDateRange(filters);
   if (dateRange) where.date = dateRange;
@@ -739,6 +812,13 @@ async function getOutwardReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.StockOutwardWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.StockOutwardWhereInput["status"];
+  if (filters.q) {
+    where.OR = [
+      { outwardNumber: ci(filters.q) },
+      { destination: ci(filters.q) },
+      { items: { some: { item: { name: ci(filters.q) } } } },
+    ];
+  }
   if (filters.warehouseId) where.warehouseId = filters.warehouseId;
   const dateRange = parseDateRange(filters);
   if (dateRange) where.date = dateRange;
@@ -769,9 +849,16 @@ async function getTransferReport(filters: ReportFilters): Promise<ReportResult> 
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.StockTransferWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.StockTransferWhereInput["status"];
+  const transferAnd: Prisma.StockTransferWhereInput[] = [];
   if (filters.warehouseId) {
-    where.OR = [{ sourceWarehouseId: filters.warehouseId }, { destWarehouseId: filters.warehouseId }];
+    transferAnd.push({ OR: [{ sourceWarehouseId: filters.warehouseId }, { destWarehouseId: filters.warehouseId }] });
   }
+  if (filters.q) {
+    transferAnd.push({
+      OR: [{ transferNumber: ci(filters.q) }, { items: { some: { item: { name: ci(filters.q) } } } }],
+    });
+  }
+  if (transferAnd.length) where.AND = transferAnd;
   const dateRange = parseDateRange(filters);
   if (dateRange) where.createdAt = dateRange;
   const [total, rows0] = await Promise.all([
@@ -800,6 +887,13 @@ async function getAdjustmentReport(filters: ReportFilters): Promise<ReportResult
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.StockAdjustmentWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.StockAdjustmentWhereInput["status"];
+  if (filters.q) {
+    where.OR = [
+      { adjustmentNumber: ci(filters.q) },
+      { item: { name: ci(filters.q) } },
+      { item: { sku: ci(filters.q) } },
+    ];
+  }
   if (filters.warehouseId) where.warehouseId = filters.warehouseId;
   if (filters.itemId) where.itemId = filters.itemId;
   const dateRange = parseDateRange(filters);
@@ -829,42 +923,56 @@ async function getAdjustmentReport(filters: ReportFilters): Promise<ReportResult
 }
 
 async function getWarehouseStockReport(filters: ReportFilters): Promise<ReportResult> {
-  const grouped = await prisma.item.groupBy({
+  // Stock actually held in each warehouse (per-warehouse balances), not grouped by items' home warehouse.
+  const grouped = await prisma.itemWarehouseStock.groupBy({
     by: ["warehouseId"],
-    where: { isActive: true, warehouseId: { not: null } },
-    _sum: { currentStock: true },
+    where: { quantity: { not: 0 }, item: { isActive: true } },
+    _sum: { quantity: true },
     _count: { _all: true },
   });
   const warehouses = await prisma.warehouse.findMany({
-    where: { id: { in: grouped.map((g) => g.warehouseId!).filter(Boolean) } },
+    where: { id: { in: grouped.map((g) => g.warehouseId) } },
   });
   const rows = grouped
     .map((g) => ({
       warehouseId: g.warehouseId,
       warehouse: warehouses.find((w) => w.id === g.warehouseId)?.name ?? "Unknown",
       itemCount: g._count._all,
-      totalStock: num(g._sum.currentStock),
+      totalStock: num(g._sum.quantity),
     }))
+    .filter((r) => matchesQuery(filters.q, r.warehouse))
     .sort((a, b) => b.totalStock - a.totalStock);
 
-  let breakdown: Record<string, unknown>[] | undefined;
+  // With a warehouse chosen, the report lists that warehouse's items instead of the per-warehouse summary.
   if (filters.warehouseId) {
-    const items = await prisma.item.findMany({
-      where: { isActive: true, warehouseId: filters.warehouseId },
-      include: { category: true },
-      orderBy: { name: "asc" },
+    const itemWhere: Prisma.ItemWhereInput = { isActive: true };
+    if (filters.q) itemWhere.OR = [{ name: ci(filters.q) }, { sku: ci(filters.q) }, { itemCode: ci(filters.q) }];
+    const stocks = await prisma.itemWarehouseStock.findMany({
+      where: { warehouseId: filters.warehouseId, quantity: { not: 0 }, item: itemWhere },
+      include: { item: { include: { category: true } } },
+      orderBy: { item: { name: "asc" } },
     });
-    breakdown = items.map((i) => ({
-      id: i.id,
-      name: i.name,
-      sku: i.sku,
-      category: i.category.name,
-      currentStock: num(i.currentStock),
-      unit: i.unit,
+    const itemRows = stocks.map((s) => ({
+      id: s.item.id,
+      name: s.item.name,
+      sku: s.item.sku,
+      category: s.item.category.name,
+      currentStock: num(s.quantity),
+      unit: s.item.unit,
     }));
+    return {
+      ...paginateRows(itemRows, filters),
+      columns: [
+        { key: "name", label: "Item" },
+        { key: "sku", label: "SKU" },
+        { key: "category", label: "Category" },
+        { key: "currentStock", label: "Stock in Warehouse" },
+        { key: "unit", label: "Unit" },
+      ],
+    };
   }
 
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1, breakdown };
+  return paginateRows(rows, filters);
 }
 
 async function getItemWiseReport(filters: ReportFilters): Promise<ReportResult> {
@@ -872,16 +980,33 @@ async function getItemWiseReport(filters: ReportFilters): Promise<ReportResult> 
   const dateRange = parseDateRange(filters) ?? { gte: new Date(Date.now() - 30 * 86400000) };
   const where: Prisma.ItemWhereInput = { isActive: true };
   if (filters.categoryId) where.categoryId = filters.categoryId;
-  if (filters.warehouseId) where.warehouseId = filters.warehouseId;
-  const [total, items] = await Promise.all([
+  if (filters.warehouseId) where.warehouseStocks = { some: { warehouseId: filters.warehouseId, quantity: { not: 0 } } };
+  if (filters.q) where.OR = [{ name: ci(filters.q) }, { sku: ci(filters.q) }, { itemCode: ci(filters.q) }];
+  const [total, items, warehouse] = await Promise.all([
     prisma.item.count({ where }),
-    prisma.item.findMany({ where, include: { category: true, warehouse: true }, orderBy: { name: "asc" }, skip, take }),
+    prisma.item.findMany({
+      where,
+      include: {
+        category: true,
+        warehouse: true,
+        warehouseStocks: filters.warehouseId ? { where: { warehouseId: filters.warehouseId } } : false,
+      },
+      orderBy: { name: "asc" },
+      skip,
+      take,
+    }),
+    filters.warehouseId ? prisma.warehouse.findUnique({ where: { id: filters.warehouseId } }) : null,
   ]);
   const itemIds = items.map((i) => i.id);
+  // With a warehouse chosen, stock and movement figures are that warehouse's own.
   const ledgerAgg = itemIds.length
     ? await prisma.inventoryLedger.groupBy({
         by: ["itemId", "transactionType"],
-        where: { itemId: { in: itemIds }, createdAt: dateRange },
+        where: {
+          itemId: { in: itemIds },
+          createdAt: dateRange,
+          ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}),
+        },
         _sum: { quantity: true },
       })
     : [];
@@ -897,8 +1022,8 @@ async function getItemWiseReport(filters: ReportFilters): Promise<ReportResult> 
       name: i.name,
       sku: i.sku,
       category: i.category.name,
-      warehouse: i.warehouse?.name ?? "—",
-      currentStock: num(i.currentStock),
+      warehouse: warehouse ? warehouse.name : (i.warehouse?.name ?? "—"),
+      currentStock: warehouse ? num(i.warehouseStocks[0]?.quantity) : num(i.currentStock),
       inwardQty,
       outwardQty,
     };
@@ -906,7 +1031,7 @@ async function getItemWiseReport(filters: ReportFilters): Promise<ReportResult> 
   return { rows, total, page, pageSize };
 }
 
-async function getCategoryWiseReport(): Promise<ReportResult> {
+async function getCategoryWiseReport(filters: ReportFilters): Promise<ReportResult> {
   const grouped = await prisma.item.groupBy({
     by: ["categoryId"],
     where: { isActive: true },
@@ -921,11 +1046,12 @@ async function getCategoryWiseReport(): Promise<ReportResult> {
       itemCount: g._count._all,
       totalStock: num(g._sum.currentStock),
     }))
+    .filter((r) => matchesQuery(filters.q, r.category))
     .sort((a, b) => b.totalStock - a.totalStock);
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
-async function getSupplierWiseReport(): Promise<ReportResult> {
+async function getSupplierWiseReport(filters: ReportFilters): Promise<ReportResult> {
   const grouped = await prisma.item.groupBy({
     by: ["supplierId"],
     where: { isActive: true, supplierId: { not: null } },
@@ -947,8 +1073,9 @@ async function getSupplierWiseReport(): Promise<ReportResult> {
       totalStock: num(g._sum.currentStock),
       totalPOAmount: num(poTotals.find((p) => p.supplierId === g.supplierId)?._sum.totalAmount ?? null),
     }))
+    .filter((r) => matchesQuery(filters.q, r.supplier))
     .sort((a, b) => b.totalStock - a.totalStock);
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getDateWiseReport(filters: ReportFilters): Promise<ReportResult> {
@@ -960,7 +1087,7 @@ async function getDateWiseReport(filters: ReportFilters): Promise<ReportResult> 
   });
   const map = new Map<string, { inward: number; outward: number }>();
   for (const r of rowsRaw) {
-    const key = r.createdAt.toISOString().slice(0, 10);
+    const key = format(r.createdAt, "yyyy-MM-dd"); // local day, matching the rest of the app
     const entry = map.get(key) ?? { inward: 0, outward: 0 };
     if (r.transactionType === "INWARD") entry.inward += num(r.quantity);
     else entry.outward += num(r.quantity);
@@ -969,13 +1096,17 @@ async function getDateWiseReport(filters: ReportFilters): Promise<ReportResult> 
   const rows = Array.from(map.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, v]) => ({ date, inwardQty: v.inward, outwardQty: v.outward }));
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getLowStockReport(filters: ReportFilters): Promise<ReportResult> {
   const conditions = [Prisma.sql`i."isActive" = true`, Prisma.sql`i."currentStock" <= i."reorderLevel"`];
   if (filters.warehouseId) conditions.push(Prisma.sql`i."warehouseId" = ${filters.warehouseId}`);
   if (filters.categoryId) conditions.push(Prisma.sql`i."categoryId" = ${filters.categoryId}`);
+  if (filters.q) {
+    const pattern = likePattern(filters.q);
+    conditions.push(Prisma.sql`(i.name ILIKE ${pattern} OR i.sku ILIKE ${pattern} OR i."itemCode" ILIKE ${pattern})`);
+  }
   const whereSql = Prisma.join(conditions, " AND ");
   const raw = await prisma.$queryRaw<
     {
@@ -999,14 +1130,25 @@ async function getLowStockReport(filters: ReportFilters): Promise<ReportResult> 
     ORDER BY (i."currentStock" - i."reorderLevel") ASC
   `);
   const rows = raw.map((r) => ({ ...r, currentStock: num(r.currentStock), reorderLevel: num(r.reorderLevel) }));
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getOutOfStockReport(filters: ReportFilters): Promise<ReportResult> {
   const where: Prisma.ItemWhereInput = { isActive: true, currentStock: { lte: 0 } };
   if (filters.warehouseId) where.warehouseId = filters.warehouseId;
   if (filters.categoryId) where.categoryId = filters.categoryId;
-  const items = await prisma.item.findMany({ where, include: { category: true, warehouse: true }, orderBy: { name: "asc" } });
+  if (filters.q) where.OR = [{ name: ci(filters.q) }, { sku: ci(filters.q) }, { itemCode: ci(filters.q) }];
+  const { page, pageSize, skip, take } = parsePage(filters);
+  const [total, items] = await Promise.all([
+    prisma.item.count({ where }),
+    prisma.item.findMany({
+      where,
+      include: { category: true, warehouse: true },
+      orderBy: { name: "asc" },
+      skip,
+      take,
+    }),
+  ]);
   const rows = items.map((i) => ({
     id: i.id,
     itemCode: i.itemCode,
@@ -1017,12 +1159,19 @@ async function getOutOfStockReport(filters: ReportFilters): Promise<ReportResult
     reorderLevel: num(i.reorderLevel),
     unit: i.unit,
   }));
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return { rows, total, page, pageSize };
 }
 
 async function getDamagedStockReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.InventoryLedgerWhereInput = { transactionType: "DAMAGED_DISPOSED" };
+  if (filters.q) {
+    where.OR = [
+      { item: { name: ci(filters.q) } },
+      { item: { sku: ci(filters.q) } },
+      { referenceNumber: ci(filters.q) },
+    ];
+  }
   const dateRange = parseDateRange(filters);
   if (dateRange) where.createdAt = dateRange;
   if (filters.warehouseId) where.warehouseId = filters.warehouseId;
@@ -1054,6 +1203,14 @@ async function getDamagedStockReport(filters: ReportFilters): Promise<ReportResu
 async function getExpiredStockReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.StockInwardItemWhereInput = { expiryDate: { lt: new Date() } };
+  if (filters.q) {
+    where.OR = [
+      { item: { name: ci(filters.q) } },
+      { item: { sku: ci(filters.q) } },
+      { batchNumber: ci(filters.q) },
+      { inward: { inwardNumber: ci(filters.q) } },
+    ];
+  }
   if (filters.itemId) where.itemId = filters.itemId;
   const [total, rows0] = await Promise.all([
     prisma.stockInwardItem.count({ where }),
@@ -1084,6 +1241,14 @@ async function getVehicleEntryExitReport(filters: ReportFilters): Promise<Report
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.VehicleGateEntryWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.VehicleGateEntryWhereInput["status"];
+  if (filters.q) {
+    where.OR = [
+      { gateEntryNumber: ci(filters.q) },
+      { vehicle: { vehicleNumber: ci(filters.q) } },
+      { driver: { fullName: ci(filters.q) } },
+      { supplier: { companyName: ci(filters.q) } },
+    ];
+  }
   const dateRange = parseDateRange(filters);
   if (dateRange) where.timeIn = dateRange;
   const [total, rows0] = await Promise.all([
@@ -1173,7 +1338,7 @@ async function getDriverDocumentExpiryReport(filters: ReportFilters): Promise<Re
   const now = new Date();
   const horizon = new Date(now.getTime() + Math.max(windowDays, 60) * 86400000);
   const docs = await prisma.driverDocument.findMany({
-    where: { expiryDate: { lte: horizon } },
+    where: { expiryDate: { lte: horizon }, ...(filters.q ? { driver: { fullName: ci(filters.q) } } : {}) },
     include: { driver: true },
     orderBy: { expiryDate: "asc" },
   });
@@ -1188,7 +1353,7 @@ async function getDriverDocumentExpiryReport(filters: ReportFilters): Promise<Re
       bucket: bucketFor(d.expiryDate!, now, windowDays),
     }))
     .filter((r) => r.bucket !== null);
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getVehicleDocumentExpiryReport(filters: ReportFilters): Promise<ReportResult> {
@@ -1196,7 +1361,7 @@ async function getVehicleDocumentExpiryReport(filters: ReportFilters): Promise<R
   const now = new Date();
   const horizon = new Date(now.getTime() + Math.max(windowDays, 60) * 86400000);
   const docs = await prisma.vehicleDocument.findMany({
-    where: { expiryDate: { lte: horizon } },
+    where: { expiryDate: { lte: horizon }, ...(filters.q ? { vehicle: { vehicleNumber: ci(filters.q) } } : {}) },
     include: { vehicle: true },
     orderBy: { expiryDate: "asc" },
   });
@@ -1211,13 +1376,14 @@ async function getVehicleDocumentExpiryReport(filters: ReportFilters): Promise<R
       bucket: bucketFor(d.expiryDate!, now, windowDays),
     }))
     .filter((r) => r.bucket !== null);
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getPurchaseOrderReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.PurchaseOrderWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.PurchaseOrderWhereInput["status"];
+  if (filters.q) where.OR = [{ poNumber: ci(filters.q) }, { supplier: { companyName: ci(filters.q) } }];
   if (filters.supplierId) where.supplierId = filters.supplierId;
   const dateRange = parseDateRange(filters);
   if (dateRange) where.date = dateRange;
@@ -1247,6 +1413,13 @@ async function getProcurementReport(filters: ReportFilters): Promise<ReportResul
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.ProcurementWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.ProcurementWhereInput["status"];
+  if (filters.q) {
+    where.OR = [
+      { procurementNumber: ci(filters.q) },
+      { supplier: { companyName: ci(filters.q) } },
+      { vehicle: { vehicleNumber: ci(filters.q) } },
+    ];
+  }
   if (filters.supplierId) where.supplierId = filters.supplierId;
   const dateRange = parseDateRange(filters);
   if (dateRange) where.date = dateRange;
@@ -1277,6 +1450,13 @@ async function getProcurementBatchReport(filters: ReportFilters): Promise<Report
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.ProcurementBatchWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.ProcurementBatchWhereInput["status"];
+  if (filters.q) {
+    where.OR = [
+      { batchNumber: ci(filters.q) },
+      { item: { name: ci(filters.q) } },
+      { supplier: { companyName: ci(filters.q) } },
+    ];
+  }
   if (filters.itemId) where.itemId = filters.itemId;
   if (filters.supplierId) where.supplierId = filters.supplierId;
   const dateRange = parseDateRange(filters);
@@ -1303,7 +1483,7 @@ async function getProcurementBatchReport(filters: ReportFilters): Promise<Report
   return { rows, total, page, pageSize };
 }
 
-async function getVendorWiseProcurementReport(): Promise<ReportResult> {
+async function getVendorWiseProcurementReport(filters: ReportFilters): Promise<ReportResult> {
   const grouped = await prisma.procurementBatch.groupBy({
     by: ["supplierId"],
     _sum: { rawWeight: true },
@@ -1333,14 +1513,18 @@ async function getVendorWiseProcurementReport(): Promise<ReportResult> {
       totalRawWeight: num(g._sum.rawWeight),
       totalWastage: wastageBySupplier.get(g.supplierId) ?? 0,
     }))
+    .filter((r) => matchesQuery(filters.q, r.supplier))
     .sort((a, b) => b.totalRawWeight - a.totalRawWeight);
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getSortingYieldReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.SortingWhereInput = {};
   if (filters.itemId) where.batch = { itemId: filters.itemId };
+  if (filters.q) {
+    where.AND = [{ OR: [{ batch: { batchNumber: ci(filters.q) } }, { batch: { item: { name: ci(filters.q) } } }] }];
+  }
   const dateRange = parseDateRange(filters);
   if (dateRange) where.sortedAt = dateRange;
   const [total, rows0] = await Promise.all([
@@ -1377,6 +1561,7 @@ async function getWastageReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.WastageWhereInput = {};
   if (filters.status) where.stage = filters.status as Prisma.WastageWhereInput["stage"];
+  if (filters.q) where.OR = [{ wastageNumber: ci(filters.q) }, { item: { name: ci(filters.q) } }];
   if (filters.itemId) where.itemId = filters.itemId;
   const dateRange = parseDateRange(filters);
   if (dateRange) where.date = dateRange;
@@ -1407,6 +1592,7 @@ async function getSalesOrderReport(filters: ReportFilters): Promise<ReportResult
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.SalesOrderWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.SalesOrderWhereInput["status"];
+  if (filters.q) where.OR = [{ soNumber: ci(filters.q) }, { customer: { name: ci(filters.q) } }];
   if (filters.customerId) where.customerId = filters.customerId;
   const dateRange = parseDateRange(filters);
   if (dateRange) where.orderDate = dateRange;
@@ -1432,7 +1618,7 @@ async function getSalesOrderReport(filters: ReportFilters): Promise<ReportResult
   return { rows, total, page, pageSize };
 }
 
-async function getCustomerWiseSalesReport(): Promise<ReportResult> {
+async function getCustomerWiseSalesReport(filters: ReportFilters): Promise<ReportResult> {
   const grouped = await prisma.salesOrder.groupBy({
     by: ["customerId"],
     _count: { _all: true },
@@ -1461,14 +1647,23 @@ async function getCustomerWiseSalesReport(): Promise<ReportResult> {
       totalQuantity: quantityByCustomer.get(g.customerId) ?? 0,
       totalAmount: num(g._sum.totalAmount),
     }))
+    .filter((r) => matchesQuery(filters.q, r.customer))
     .sort((a, b) => b.totalAmount - a.totalAmount);
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getTripReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.TripWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.TripWhereInput["status"];
+  if (filters.q) {
+    where.OR = [
+      { tripNumber: ci(filters.q) },
+      { customer: { name: ci(filters.q) } },
+      { vehicle: { vehicleNumber: ci(filters.q) } },
+      { driver: { fullName: ci(filters.q) } },
+    ];
+  }
   const dateRange = parseDateRange(filters);
   if (dateRange) where.departureAt = dateRange;
   const [total, rows0] = await Promise.all([
@@ -1498,6 +1693,7 @@ async function getCrateStatusReport(filters: ReportFilters): Promise<ReportResul
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.CrateWhereInput = {};
   if (filters.status) where.status = filters.status as Prisma.CrateWhereInput["status"];
+  if (filters.q) where.OR = [{ crateCode: ci(filters.q) }, { currentLocation: ci(filters.q) }];
   const [total, rows0] = await Promise.all([
     prisma.crate.count({ where }),
     prisma.crate.findMany({ where, orderBy: { crateCode: "asc" }, skip, take }),
@@ -1512,38 +1708,11 @@ async function getCrateStatusReport(filters: ReportFilters): Promise<ReportResul
   return { rows, total, page, pageSize };
 }
 
-async function getAttendanceReport(filters: ReportFilters): Promise<ReportResult> {
-  const { page, pageSize, skip, take } = parsePage(filters);
-  const where: Prisma.AttendanceWhereInput = {};
-  if (filters.status) where.status = filters.status as Prisma.AttendanceWhereInput["status"];
-  const dateRange = parseDateRange(filters);
-  if (dateRange) where.date = dateRange;
-  const [total, rows0] = await Promise.all([
-    prisma.attendance.count({ where }),
-    prisma.attendance.findMany({
-      where,
-      include: { employee: true, labour: true, shift: true },
-      orderBy: { date: "desc" },
-      skip,
-      take,
-    }),
-  ]);
-  const rows = rows0.map((a) => ({
-    id: a.id,
-    date: a.date,
-    personName: a.employee?.name ?? a.labour?.name ?? "—",
-    personType: a.employee ? "Employee" : a.labour ? "Labour" : "—",
-    shift: a.shift?.shiftName ?? "—",
-    status: a.status,
-    overtimeHours: num(a.overtimeHours),
-  }));
-  return { rows, total, page, pageSize };
-}
-
 async function getPayrollSummaryReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.SalaryWhereInput = {};
   if (filters.status) where.paymentStatus = filters.status as Prisma.SalaryWhereInput["paymentStatus"];
+  if (filters.q) where.OR = [{ employee: { name: ci(filters.q) } }, { labour: { name: ci(filters.q) } }];
   const dateRange = parseDateRange(filters);
   if (dateRange) where.periodStart = dateRange;
   const [total, rows0] = await Promise.all([
@@ -1559,7 +1728,7 @@ async function getPayrollSummaryReport(filters: ReportFilters): Promise<ReportRe
   const rows = rows0.map((s) => ({
     id: s.id,
     personName: s.employee?.name ?? s.labour?.name ?? "—",
-    period: `${s.periodStart.toISOString().slice(0, 10)} to ${s.periodEnd.toISOString().slice(0, 10)}`,
+    period: `${format(s.periodStart, "yyyy-MM-dd")} to ${format(s.periodEnd, "yyyy-MM-dd")}`,
     earnings: num(s.earnings),
     overtimeAmount: num(s.overtimeAmount),
     advances: num(s.advances),
@@ -1576,6 +1745,9 @@ async function getAuditLogReport(filters: ReportFilters): Promise<ReportResult> 
   if (filters.userId) where.userId = filters.userId;
   if (filters.action) where.action = filters.action;
   if (filters.entityType) where.entityType = filters.entityType;
+  if (filters.q) {
+    where.OR = [{ entityId: ci(filters.q) }, { entityType: ci(filters.q) }, { user: { name: ci(filters.q) } }];
+  }
   const dateRange = parseDateRange(filters);
   if (dateRange) where.createdAt = dateRange;
   const [total, rows0] = await Promise.all([
@@ -1594,11 +1766,15 @@ async function getAuditLogReport(filters: ReportFilters): Promise<ReportResult> 
   return { rows, total, page, pageSize };
 }
 
-async function getCrateOverdueReport(): Promise<ReportResult> {
+async function getCrateOverdueReport(filters: ReportFilters): Promise<ReportResult> {
   const overdueDays = await getOverdueDays();
   const threshold = new Date(Date.now() - overdueDays * 86400000);
   const rows0 = await prisma.crate.findMany({
-    where: { status: "WITH_CUSTOMER", updatedAt: { lte: threshold } },
+    where: {
+      status: "WITH_CUSTOMER",
+      updatedAt: { lte: threshold },
+      ...(filters.q ? { OR: [{ crateCode: ci(filters.q) }, { customer: { name: ci(filters.q) } }] } : {}),
+    },
     include: { customer: true },
     orderBy: { updatedAt: "asc" },
   });
@@ -1610,7 +1786,7 @@ async function getCrateOverdueReport(): Promise<ReportResult> {
     daysWithCustomer: Math.floor((Date.now() - c.updatedAt.getTime()) / 86400000),
     thresholdDays: overdueDays,
   }));
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getCrateCustomerBalanceReport(filters: ReportFilters): Promise<ReportResult> {
@@ -1638,8 +1814,9 @@ async function getCrateCustomerBalanceReport(filters: ReportFilters): Promise<Re
         pendingBalance: dispatched - returned - damaged - missing,
       };
     })
+    .filter((r) => matchesQuery(filters.q, r.customer))
     .sort((a, b) => b.pendingBalance - a.pendingBalance);
-  return { rows, total: rows.length, page: 1, pageSize: rows.length || 1 };
+  return paginateRows(rows, filters);
 }
 
 async function getFuelReport(filters: ReportFilters): Promise<ReportResult> {
@@ -1647,6 +1824,7 @@ async function getFuelReport(filters: ReportFilters): Promise<ReportResult> {
   const where: Prisma.FuelEntryWhereInput = { isVoided: false };
   if (filters.status === "ANOMALY") where.isAnomaly = true;
   if (filters.status === "NORMAL") where.isAnomaly = false;
+  if (filters.q) where.OR = [{ vehicle: { vehicleNumber: ci(filters.q) } }, { driver: { fullName: ci(filters.q) } }];
   const dateRange = parseDateRange(filters);
   if (dateRange) where.date = dateRange;
   const [total, rows0] = await Promise.all([
@@ -1677,6 +1855,9 @@ async function getFuelReport(filters: ReportFilters): Promise<ReportResult> {
 async function getMaintenanceReport(filters: ReportFilters): Promise<ReportResult> {
   const { page, pageSize, skip, take } = parsePage(filters);
   const where: Prisma.VehicleMaintenanceWhereInput = { isArchived: false };
+  if (filters.q) {
+    where.OR = [{ vehicle: { vehicleNumber: ci(filters.q) } }, { serviceCenterVendor: ci(filters.q) }];
+  }
   if (filters.status) where.vehicle = { maintenanceState: filters.status as Prisma.VehicleWhereInput["maintenanceState"] };
   const dateRange = parseDateRange(filters);
   if (dateRange) where.serviceDate = dateRange;
@@ -1707,7 +1888,26 @@ async function getMaintenanceReport(filters: ReportFilters): Promise<ReportResul
 // Dispatcher
 // ==================================================
 
-export async function getReportRows(type: ReportType, filters: ReportFilters): Promise<ReportResult> {
+const isValidDate = (v: string | undefined) => !!v && !Number.isNaN(new Date(`${v}T00:00:00`).getTime());
+
+/** Drops filter values that came from the URL but aren't valid, so a bad link shows unfiltered data instead of crashing. */
+function sanitizeFilters(type: ReportType, filters: ReportFilters): ReportFilters {
+  const allowedStatuses = REPORT_FILTER_CONFIG[type].status ?? [];
+  return {
+    ...filters,
+    q: normalizeQuery(filters.q),
+    status: filters.status && allowedStatuses.includes(filters.status) ? filters.status : undefined,
+    ledgerType:
+      filters.ledgerType && (Object.values(LedgerTxnType) as string[]).includes(filters.ledgerType)
+        ? filters.ledgerType
+        : undefined,
+    dateFrom: isValidDate(filters.dateFrom) ? filters.dateFrom : undefined,
+    dateTo: isValidDate(filters.dateTo) ? filters.dateTo : undefined,
+  };
+}
+
+export async function getReportRows(type: ReportType, rawFilters: ReportFilters): Promise<ReportResult> {
+  const filters = sanitizeFilters(type, rawFilters);
   switch (type) {
     case "current-stock":
       return getCurrentStockReport(filters);
@@ -1726,9 +1926,9 @@ export async function getReportRows(type: ReportType, filters: ReportFilters): P
     case "item-wise":
       return getItemWiseReport(filters);
     case "category-wise":
-      return getCategoryWiseReport();
+      return getCategoryWiseReport(filters);
     case "supplier-wise":
-      return getSupplierWiseReport();
+      return getSupplierWiseReport(filters);
     case "date-wise":
       return getDateWiseReport(filters);
     case "low-stock":
@@ -1756,7 +1956,7 @@ export async function getReportRows(type: ReportType, filters: ReportFilters): P
     case "procurement-batch":
       return getProcurementBatchReport(filters);
     case "vendor-wise-procurement":
-      return getVendorWiseProcurementReport();
+      return getVendorWiseProcurementReport(filters);
     case "sorting-yield":
       return getSortingYieldReport(filters);
     case "wastage":
@@ -1764,21 +1964,19 @@ export async function getReportRows(type: ReportType, filters: ReportFilters): P
     case "sales-order":
       return getSalesOrderReport(filters);
     case "customer-wise-sales":
-      return getCustomerWiseSalesReport();
+      return getCustomerWiseSalesReport(filters);
     case "trip":
       return getTripReport(filters);
     case "crate-status":
       return getCrateStatusReport(filters);
     case "crate-overdue":
-      return getCrateOverdueReport();
+      return getCrateOverdueReport(filters);
     case "crate-customer-balance":
       return getCrateCustomerBalanceReport(filters);
     case "fuel":
       return getFuelReport(filters);
     case "maintenance":
       return getMaintenanceReport(filters);
-    case "attendance":
-      return getAttendanceReport(filters);
     case "payroll-summary":
       return getPayrollSummaryReport(filters);
     case "audit-log":
@@ -1789,7 +1987,7 @@ export async function getReportRows(type: ReportType, filters: ReportFilters): P
 /** Formats a cell value for CSV/Excel export (dates -> ISO date, numbers stay numbers). */
 export function formatExportValue(value: unknown): string | number {
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) return format(value, "yyyy-MM-dd");
   if (typeof value === "number" || typeof value === "string") return value;
   return String(value);
 }

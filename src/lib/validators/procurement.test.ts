@@ -9,7 +9,7 @@ describe("procurementSchema", () => {
       warehouseId: "wh_1",
       vehicleId: "",
       driverId: "",
-      gateEntryId: "",
+      gateEntryId: "ge_1",
       purchaseOrderId: "",
       invoiceNumber: "INV-001",
       remarks: "",
@@ -75,5 +75,61 @@ describe("procurementSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("rejects a procurement without a gate entry", () => {
+    const result = procurementSchema.safeParse({
+      supplierId: "sup_1",
+      date: "2026-08-31",
+      warehouseId: "wh_1",
+      gateEntryId: "",
+      items: [{ itemId: "item_1", quantity: 10, unit: "kg", weight: 10 }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.join(".") === "gateEntryId")).toBe(true);
+    }
+  });
+
+  it("treats a blank price as no price rather than 0", () => {
+    const result = procurementSchema.safeParse({
+      supplierId: "sup_1",
+      date: "2026-08-31",
+      warehouseId: "wh_1",
+      gateEntryId: "ge_1",
+      items: [{ itemId: "item_1", quantity: 10, unit: "kg", weight: 10, purchasePrice: "" }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.items[0].purchasePrice).toBeUndefined();
+  });
+
+  it("uses the quantity as the weight for kg items", () => {
+    const result = procurementSchema.safeParse({
+      supplierId: "sup_1",
+      date: "2026-08-31",
+      warehouseId: "wh_1",
+      gateEntryId: "ge_1",
+      items: [{ itemId: "item_1", quantity: 10, unit: "KG", weight: 100 }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.items[0].weight).toBe(10);
+  });
+
+  it("requires a weight for items not measured in kg", () => {
+    const result = procurementSchema.safeParse({
+      supplierId: "sup_1",
+      date: "2026-08-31",
+      warehouseId: "wh_1",
+      gateEntryId: "ge_1",
+      items: [{ itemId: "item_1", quantity: 10, unit: "crate", weight: "" }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.join(".") === "items.0.weight")).toBe(true);
+    }
   });
 });

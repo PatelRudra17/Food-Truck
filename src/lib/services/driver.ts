@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Pagination } from "@/lib/validators/common";
 import { paginationMeta } from "@/lib/validators/common";
-import type { Prisma, PersonStatus } from "@prisma/client";
+import { PersonStatus, type Prisma } from "@prisma/client";
 
 export type DriverListFilters = {
   q?: string;
@@ -17,7 +17,7 @@ export async function listDrivers(pagination: Pagination, filters: DriverListFil
       { employeeId: { contains: filters.q, mode: "insensitive" } },
     ];
   }
-  if (filters.status) {
+  if (filters.status && (Object.values(PersonStatus) as string[]).includes(filters.status)) {
     where.status = filters.status as PersonStatus;
   }
 

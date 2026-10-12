@@ -19,13 +19,14 @@ function SubmitButton() {
   );
 }
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [state, formAction] = useActionState(loginAction, initialState);
 
   return (
     <Card>
       <CardContent className="pt-6">
         <form action={formAction} className="space-y-4" noValidate>
+          {next && <input type="hidden" name="next" value={next} />}
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input id="email" name="email" type="email" autoComplete="username" required />

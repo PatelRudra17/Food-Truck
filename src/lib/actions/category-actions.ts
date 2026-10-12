@@ -8,6 +8,27 @@ import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
 import { categorySchema } from "@/lib/validators/category";
 
+/**
+ * Friendly duplicate check. The DB unique index on (name, parentId) does not catch
+ * duplicate top-level names because Postgres treats NULL parentIds as distinct.
+ */
+async function assertCategoryNameAvailable(name: string, parentId: string | null, excludeId?: string) {
+  const duplicate = await prisma.category.findFirst({
+    where: {
+      name: { equals: name, mode: "insensitive" },
+      parentId,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+  });
+  if (duplicate) {
+    throw new Error(
+      parentId
+        ? `A subcategory named "${duplicate.name}" already exists under this parent.`
+        : `A top-level category named "${duplicate.name}" already exists.`,
+    );
+  }
+}
+
 export async function createCategoryAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("CATEGORY_CREATE");
@@ -18,6 +39,8 @@ export async function createCategoryAction(input: unknown): Promise<ActionResult
       if (!parent) throw new Error("Selected parent category was not found.");
       if (parent.parentId) throw new Error("Only one level of subcategory is allowed — choose a top-level category as the parent.");
     }
+
+    await assertCategoryNameAvailable(data.name, data.parentId ?? null);
 
     const created = await prisma.category.create({
       data: {
@@ -63,6 +86,8 @@ export async function updateCategoryAction(id: string, input: unknown): Promise<
       const childCount = await prisma.category.count({ where: { parentId: id } });
       if (childCount > 0) throw new Error("This category has subcategories — remove them before nesting it under another category.");
     }
+
+    await assertCategoryNameAvailable(data.name, data.parentId ?? null, id);
 
     const updated = await prisma.category.update({
       where: { id },

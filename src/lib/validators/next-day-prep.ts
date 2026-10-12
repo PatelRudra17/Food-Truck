@@ -5,7 +5,6 @@ export const DEFAULT_CHECKLIST_LABELS = [
   "Vehicle availability",
   "Driver availability",
   "Crates ready",
-  "Cleaning completed",
   "Inventory ready",
   "Pending orders reviewed",
   "Procurement planned",

@@ -22,8 +22,6 @@ import {
   Container,
   AlertOctagon,
   IdCard,
-  UserCheck,
-  HardHat,
   Scale,
   IndianRupee,
   BadgeCheck,
@@ -144,8 +142,6 @@ export default async function DashboardPage() {
           href="/drivers"
           tone={kpis.expiringLicences > 0 ? "warning" : "default"}
         />
-        <KpiCard label="Employees Present" value={kpis.employeesPresentToday} icon={UserCheck} href="/attendance" />
-        <KpiCard label="Labour Present" value={kpis.labourPresentToday} icon={HardHat} href="/attendance" />
         <KpiCard label="Current Shift" value={kpis.currentShiftName ?? "None"} icon={ClipboardList} href="/operations/shifts" />
       </div>
 

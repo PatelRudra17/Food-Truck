@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
+import type { PermissionCode } from "@/lib/auth/permissions";
 
 export type SearchResultGroup = {
   label: string;
@@ -9,9 +10,13 @@ export type SearchResultGroup = {
 };
 
 export async function globalSearchAction(query: string): Promise<SearchResultGroup[]> {
-  await requirePermission("GLOBAL_SEARCH");
+  const user = await requirePermission("GLOBAL_SEARCH");
   const q = query.trim();
   if (q.length < 2) return [];
+
+  // Only search modules the user can open, so results never reveal records they couldn't view.
+  const can = (permission: PermissionCode) => user.permissions.includes(permission);
+  const none = Promise.resolve([]);
 
   const [
     items,
@@ -27,87 +32,111 @@ export async function globalSearchAction(query: string): Promise<SearchResultGro
     employees,
     labourers,
   ] = await Promise.all([
-    prisma.item.findMany({
-      where: {
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { sku: { contains: q, mode: "insensitive" } },
-          { itemCode: { contains: q, mode: "insensitive" } },
-          { barcode: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      take: 5,
-    }),
-    prisma.supplier.findMany({
-      where: {
-        OR: [
-          { companyName: { contains: q, mode: "insensitive" } },
-          { code: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      take: 5,
-    }),
-    prisma.vehicle.findMany({
-      where: { vehicleNumber: { contains: q, mode: "insensitive" } },
-      take: 5,
-    }),
-    prisma.driver.findMany({
-      where: {
-        OR: [
-          { fullName: { contains: q, mode: "insensitive" } },
-          { employeeId: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      take: 5,
-    }),
-    prisma.stockInward.findMany({
-      where: { inwardNumber: { contains: q, mode: "insensitive" } },
-      take: 5,
-    }),
-    prisma.stockOutward.findMany({
-      where: { outwardNumber: { contains: q, mode: "insensitive" } },
-      take: 5,
-    }),
-    prisma.purchaseOrder.findMany({
-      where: { poNumber: { contains: q, mode: "insensitive" } },
-      take: 5,
-    }),
-    prisma.customer.findMany({
-      where: {
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { customerCode: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      take: 5,
-    }),
-    prisma.procurementBatch.findMany({
-      where: { batchNumber: { contains: q, mode: "insensitive" } },
-      include: { item: true },
-      take: 5,
-    }),
-    prisma.crate.findMany({
-      where: { crateCode: { contains: q, mode: "insensitive" } },
-      take: 5,
-    }),
-    prisma.employee.findMany({
-      where: {
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { employeeCode: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      take: 5,
-    }),
-    prisma.labour.findMany({
-      where: {
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { labourCode: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      take: 5,
-    }),
+    can("ITEM_VIEW")
+      ? prisma.item.findMany({
+          where: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { sku: { contains: q, mode: "insensitive" } },
+              { itemCode: { contains: q, mode: "insensitive" } },
+              { barcode: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          take: 5,
+        })
+      : none,
+    can("SUPPLIER_VIEW")
+      ? prisma.supplier.findMany({
+          where: {
+            OR: [
+              { companyName: { contains: q, mode: "insensitive" } },
+              { code: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          take: 5,
+        })
+      : none,
+    can("VEHICLE_VIEW")
+      ? prisma.vehicle.findMany({
+          where: { vehicleNumber: { contains: q, mode: "insensitive" } },
+          take: 5,
+        })
+      : none,
+    can("DRIVER_VIEW")
+      ? prisma.driver.findMany({
+          where: {
+            OR: [
+              { fullName: { contains: q, mode: "insensitive" } },
+              { employeeId: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          take: 5,
+        })
+      : none,
+    can("STOCK_INWARD_VIEW")
+      ? prisma.stockInward.findMany({
+          where: { inwardNumber: { contains: q, mode: "insensitive" } },
+          take: 5,
+        })
+      : none,
+    can("STOCK_OUTWARD_VIEW")
+      ? prisma.stockOutward.findMany({
+          where: { outwardNumber: { contains: q, mode: "insensitive" } },
+          take: 5,
+        })
+      : none,
+    can("PURCHASE_ORDER_VIEW")
+      ? prisma.purchaseOrder.findMany({
+          where: { poNumber: { contains: q, mode: "insensitive" } },
+          take: 5,
+        })
+      : none,
+    can("CUSTOMER_VIEW")
+      ? prisma.customer.findMany({
+          where: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { customerCode: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          take: 5,
+        })
+      : none,
+    can("PROCUREMENT_VIEW")
+      ? prisma.procurementBatch.findMany({
+          where: { batchNumber: { contains: q, mode: "insensitive" } },
+          include: { item: true },
+          take: 5,
+        })
+      : none,
+    can("CRATE_VIEW")
+      ? prisma.crate.findMany({
+          where: { crateCode: { contains: q, mode: "insensitive" } },
+          take: 5,
+        })
+      : none,
+    can("EMPLOYEE_VIEW")
+      ? prisma.employee.findMany({
+          where: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { employeeCode: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          take: 5,
+        })
+      : none,
+    can("LABOUR_VIEW")
+      ? prisma.labour.findMany({
+          where: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { labourCode: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          take: 5,
+        })
+      : none,
   ]);
 
   const groups: SearchResultGroup[] = [

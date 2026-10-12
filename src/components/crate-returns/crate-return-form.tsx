@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
@@ -30,6 +31,8 @@ export type TripOption = {
   customerId: string;
   customerName: string;
   suggestedCratesDispatched: number;
+  /** Returned + damaged + missing across returns already recorded for this trip. */
+  alreadyAccounted: number;
 };
 export type CrateOption = { id: string; crateCode: string; customerId: string | null; status: string };
 
@@ -63,7 +66,7 @@ export function CrateReturnFormDialog({ trips, crates }: { trips: TripOption[]; 
       cratesReturned: 0,
       cratesDamaged: 0,
       cratesMissing: 0,
-      returnDate: new Date().toISOString().slice(0, 10),
+      returnDate: format(new Date(), "yyyy-MM-dd"),
       condition: "",
       remarks: "",
       crateOutcomes: [],
@@ -153,7 +156,14 @@ export function CrateReturnFormDialog({ trips, crates }: { trips: TripOption[]; 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Field>
                 <FieldLabel htmlFor="cratesDispatched">Dispatched *</FieldLabel>
-                <Input id="cratesDispatched" type="number" min="0" step="1" {...register("cratesDispatched")} />
+                <Input
+                  id="cratesDispatched"
+                  type="number"
+                  min="0"
+                  step="1"
+                  readOnly={!!selectedTrip && selectedTrip.suggestedCratesDispatched > 0}
+                  {...register("cratesDispatched")}
+                />
                 <FieldError errors={[errors.cratesDispatched]} />
               </Field>
               <Field>
@@ -191,6 +201,11 @@ export function CrateReturnFormDialog({ trips, crates }: { trips: TripOption[]; 
               </Field>
             </div>
             <FieldError errors={[errors.cratesReturned]} />
+            {selectedTrip && selectedTrip.alreadyAccounted > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {selectedTrip.alreadyAccounted} crate(s) on this trip are already accounted for by earlier returns.
+              </p>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <Field>

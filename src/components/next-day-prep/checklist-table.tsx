@@ -87,6 +87,9 @@ export function ChecklistTable({
                       }
                       title="Reopen checklist item"
                       description={row.original.label}
+                      confirmLabel="Reopen"
+                      successMessage="Item reopened."
+                      reasonPlaceholder="Explain why this item is being reopened..."
                       onConfirm={(reason) => reopenChecklistItemAction({ itemId: row.original.id, reason })}
                     />
                   )}

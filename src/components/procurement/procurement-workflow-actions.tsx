@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Send, Ban } from "lucide-react";
+import { Send, Ban, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { submitProcurementAction, cancelProcurementAction } from "@/lib/actions/procurement-actions";
@@ -24,6 +25,11 @@ export function ProcurementWorkflowActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <Button size="sm" variant="outline" asChild>
+        <Link href={`/procurement/${procurementId}/edit`}>
+          <Pencil className="h-4 w-4" /> Edit
+        </Link>
+      </Button>
       <ConfirmDialog
         trigger={
           <Button size="sm">

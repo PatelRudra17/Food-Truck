@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
+import { assertSeparateApprover } from "@/lib/services/approval-policy";
 import { writeAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
@@ -77,6 +78,76 @@ export async function createPurchaseOrderAction(
   }
 }
 
+/**
+ * Edits a DRAFT purchase order (including one sent back to Draft by a
+ * rejection). Line items are replaced wholesale and totals recomputed.
+ */
+export async function updatePurchaseOrderAction(
+  id: string,
+  input: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const user = await requirePermission("PURCHASE_ORDER_EDIT");
+    const data = purchaseOrderSchema.parse(input);
+
+    const lines = data.items.map((line) => ({
+      itemId: line.itemId,
+      quantity: line.quantity,
+      rate: line.rate,
+      taxPercent: line.taxPercent ?? null,
+      total: computeLineTotal(line.quantity, line.rate, line.taxPercent),
+    }));
+    const totalAmount = round2(lines.reduce((sum, l) => sum + l.total, 0));
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.purchaseOrder.findUniqueOrThrow({ where: { id } });
+      if (existing.status !== "DRAFT") throw new Error("Only draft purchase orders can be edited.");
+
+      // Inward lines may reference PO lines via poItemId; refuse rather than orphan them.
+      const linkedInwardLines = await tx.stockInwardItem.count({ where: { poItem: { poId: id } } });
+      if (linkedInwardLines > 0) {
+        throw new Error("Stock inward lines already reference this purchase order, so its lines cannot be changed.");
+      }
+
+      await tx.purchaseOrderItem.deleteMany({ where: { poId: id } });
+      await tx.purchaseOrder.update({
+        where: { id },
+        data: {
+          supplierId: data.supplierId,
+          date: new Date(data.date),
+          expectedDelivery: data.expectedDelivery ? new Date(data.expectedDelivery) : null,
+          remarks: data.remarks || null,
+          totalAmount,
+          items: {
+            create: lines.map((line) => ({
+              itemId: line.itemId,
+              quantity: line.quantity,
+              receivedQuantity: 0,
+              rate: line.rate,
+              taxPercent: line.taxPercent,
+              total: line.total,
+            })),
+          },
+        },
+      });
+    });
+
+    await writeAuditLog({
+      userId: user.id,
+      action: "EDIT",
+      entityType: "PurchaseOrder",
+      entityId: id,
+      newValues: { totalAmount, lineCount: lines.length },
+    });
+
+    revalidatePath("/purchase-orders");
+    revalidatePath(`/purchase-orders/${id}`);
+    return { ok: true, data: { id } };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
 export async function submitPurchaseOrderForApprovalAction(
   id: string,
 ): Promise<ActionResult<{ id: string }>> {
@@ -147,6 +218,9 @@ export async function decidePurchaseOrderApprovalAction(
       if (!approval) {
         throw new Error("No pending approval record was found for this purchase order.");
       }
+      if (decision === "APPROVED") {
+        await assertSeparateApprover(tx, user.id, [po.createdById, approval.requestedById]);
+      }
 
       await tx.approval.update({
         where: { id: approval.id },
@@ -201,7 +275,31 @@ export async function cancelPurchaseOrderAction(id: string): Promise<ActionResul
       };
     }
 
-    const updated = await prisma.purchaseOrder.update({ where: { id }, data: { status: "CANCELLED" } });
+    const openInwards = await prisma.stockInward.findMany({
+      where: { purchaseOrderId: id, status: { in: ["DRAFT", "PENDING", "APPROVED"] } },
+      select: { inwardNumber: true },
+    });
+    if (openInwards.length > 0) {
+      return {
+        ok: false,
+        error: `Open stock inward(s) ${openInwards.map((i) => i.inwardNumber).join(", ")} are linked to this purchase order. Cancel or receive them first.`,
+      };
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // ApprovalDecision has no CANCELLED value, so a pending approval is closed
+      // as REJECTED with an explanatory comment rather than left PENDING forever.
+      await tx.approval.updateMany({
+        where: { poFk: id, decision: "PENDING" },
+        data: {
+          decision: "REJECTED",
+          decidedById: user.id,
+          decidedAt: new Date(),
+          comment: "Closed automatically: purchase order was cancelled.",
+        },
+      });
+      return tx.purchaseOrder.update({ where: { id }, data: { status: "CANCELLED" } });
+    });
 
     await writeAuditLog({
       userId: user.id,
@@ -214,6 +312,7 @@ export async function cancelPurchaseOrderAction(id: string): Promise<ActionResul
 
     revalidatePath("/purchase-orders");
     revalidatePath(`/purchase-orders/${id}`);
+    revalidatePath("/settings/approvals");
     return { ok: true, data: { id: updated.id } };
   } catch (error) {
     return actionError(error);

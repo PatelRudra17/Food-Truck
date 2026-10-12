@@ -48,6 +48,16 @@ export function VehicleDocumentDialog({
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
+  // Every field listed explicitly: reset() leaves out-of-list fields holding the previous document's text.
+  const blank = {
+    vehicleId,
+    docType: "REGISTRATION" as const,
+    docNumber: "",
+    issueDate: "",
+    expiryDate: "",
+    verificationStatus: "UNVERIFIED" as const,
+    ...defaultValues,
+  };
 
   const {
     register,
@@ -58,12 +68,7 @@ export function VehicleDocumentDialog({
     formState: { errors, isSubmitting },
   } = useForm<VehicleDocumentFormInput, unknown, VehicleDocumentInput>({
     resolver: zodResolver(vehicleDocumentSchema),
-    defaultValues: {
-      vehicleId,
-      docType: "REGISTRATION",
-      verificationStatus: "UNVERIFIED",
-      ...defaultValues,
-    },
+    defaultValues: blank,
   });
 
   const docType = watch("docType");
@@ -74,6 +79,9 @@ export function VehicleDocumentDialog({
     if (result.ok) {
       toast.success(documentId ? "Document updated." : "Document added.");
       setOpen(false);
+      // Closing via setOpen doesn't fire onOpenChange, so clear the form here
+      // or the next "Add Document" starts with these values.
+      reset(blank);
       router.refresh();
     } else {
       toast.error(result.error);
@@ -85,7 +93,7 @@ export function VehicleDocumentDialog({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) reset({ vehicleId, docType: "REGISTRATION", verificationStatus: "UNVERIFIED", ...defaultValues });
+        if (!next) reset(blank);
       }}
     >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -125,6 +133,7 @@ export function VehicleDocumentDialog({
             <div className="space-y-1">
               <Label htmlFor="expiryDate">Expiry Date</Label>
               <Input id="expiryDate" type="date" {...register("expiryDate")} />
+              {errors.expiryDate && <p className="text-xs text-destructive">{errors.expiryDate.message}</p>}
             </div>
           </div>
 

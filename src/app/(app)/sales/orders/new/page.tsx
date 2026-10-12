@@ -8,7 +8,7 @@ export const metadata = { title: "New Sales Order" };
 export default async function NewSalesOrderPage() {
   await requirePermission("SALES_ORDER_CREATE");
 
-  const [customers, items, warehouses] = await Promise.all([
+  const [customers, items] = await Promise.all([
     prisma.customer.findMany({
       where: { status: "ACTIVE" },
       orderBy: { name: "asc" },
@@ -19,11 +19,6 @@ export default async function NewSalesOrderPage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true, sku: true, unit: true, warehouseId: true },
     }),
-    prisma.warehouse.findMany({
-      where: { status: "ACTIVE" },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, code: true },
-    }),
   ]);
 
   return (
@@ -32,7 +27,7 @@ export default async function NewSalesOrderPage() {
         title="New Sales Order"
         description="Raise a sales order for a customer with one or more graded line items."
       />
-      <SalesOrderForm customers={customers} items={items} warehouses={warehouses} />
+      <SalesOrderForm customers={customers} items={items} />
     </div>
   );
 }

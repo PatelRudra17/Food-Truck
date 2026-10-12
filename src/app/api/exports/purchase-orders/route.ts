@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { format } from "date-fns";
-import { Prisma } from "@prisma/client";
+import { Prisma, POStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
 import { writeAuditLog } from "@/lib/audit";
@@ -11,20 +11,14 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams;
   const q = searchParams.get("q") ?? undefined;
-  const status = searchParams.get("status") ?? undefined;
+  const rawStatus = searchParams.get("status");
+  // Ignore unknown status values instead of letting Prisma throw on an invalid enum.
+  const status = (Object.values(POStatus) as string[]).includes(rawStatus ?? "")
+    ? (rawStatus as POStatus)
+    : undefined;
 
   const where: Prisma.PurchaseOrderWhereInput = {
-    ...(status
-      ? {
-          status: status as
-            | "DRAFT"
-            | "PENDING_APPROVAL"
-            | "APPROVED"
-            | "PARTIALLY_RECEIVED"
-            | "RECEIVED"
-            | "CANCELLED",
-        }
-      : {}),
+    ...(status ? { status } : {}),
     ...(q
       ? {
           OR: [

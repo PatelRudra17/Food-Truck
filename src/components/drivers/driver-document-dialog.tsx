@@ -49,6 +49,18 @@ export function DriverDocumentDialog({
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
+  // Every field listed explicitly: reset() leaves out-of-list fields holding the previous document's text.
+  const blank = {
+    driverId,
+    docType: "AADHAAR" as const,
+    plainNumber: "",
+    licenceClass: "",
+    issueDate: "",
+    expiryDate: "",
+    issuingAuthority: "",
+    verificationStatus: "UNVERIFIED" as const,
+    ...defaultValues,
+  };
 
   const {
     register,
@@ -59,12 +71,7 @@ export function DriverDocumentDialog({
     formState: { errors, isSubmitting },
   } = useForm<DriverDocumentFormInput, unknown, DriverDocumentInput>({
     resolver: zodResolver(driverDocumentSchema),
-    defaultValues: {
-      driverId,
-      docType: "AADHAAR",
-      verificationStatus: "UNVERIFIED",
-      ...defaultValues,
-    },
+    defaultValues: blank,
   });
 
   const docType = watch("docType");
@@ -76,6 +83,9 @@ export function DriverDocumentDialog({
     if (result.ok) {
       toast.success(documentId ? "Document updated." : "Document added.");
       setOpen(false);
+      // Closing via setOpen doesn't fire onOpenChange, so clear the form here
+      // or the next "Add Document" starts with these values.
+      reset(blank);
       router.refresh();
     } else {
       toast.error(result.error);
@@ -88,12 +98,7 @@ export function DriverDocumentDialog({
       onOpenChange={(next) => {
         setOpen(next);
         if (!next) {
-          reset({
-            driverId,
-            docType: "AADHAAR",
-            verificationStatus: "UNVERIFIED",
-            ...defaultValues,
-          });
+          reset(blank);
         }
       }}
     >
@@ -130,6 +135,7 @@ export function DriverDocumentDialog({
               placeholder={sensitive ? "Stored encrypted on save" : "Optional document number"}
               {...register("plainNumber")}
             />
+            {errors.plainNumber && <p className="text-xs text-destructive">{errors.plainNumber.message}</p>}
           </div>
 
           {docType === "DRIVING_LICENCE" && (
@@ -153,6 +159,7 @@ export function DriverDocumentDialog({
             <div className="space-y-1">
               <Label htmlFor="expiryDate">Expiry Date</Label>
               <Input id="expiryDate" type="date" {...register("expiryDate")} />
+              {errors.expiryDate && <p className="text-xs text-destructive">{errors.expiryDate.message}</p>}
             </div>
           </div>
 

@@ -28,7 +28,8 @@ type ItemOption = {
   sku: string;
   unit: string;
   warehouseId: string | null;
-  currentStock: number;
+  /** Stock on hand per warehouse id; a count is compared with the chosen warehouse's balance. */
+  stockByWarehouse: Record<string, number>;
 };
 type WarehouseOption = { id: string; name: string; code: string };
 
@@ -51,10 +52,11 @@ export function AdjustmentForm({ items, warehouses }: { items: ItemOption[]; war
   });
 
   const itemId = watch("itemId");
+  const warehouseId = watch("warehouseId");
   const physicalQty = Number(watch("physicalQty"));
 
   const selectedItem = useMemo(() => items.find((i) => i.id === itemId), [items, itemId]);
-  const currentQty = selectedItem?.currentStock ?? 0;
+  const currentQty = (warehouseId && selectedItem?.stockByWarehouse[warehouseId]) || 0;
   const difference = (Number.isFinite(physicalQty) ? physicalQty : 0) - currentQty;
 
   async function onSubmit(values: CreateAdjustmentInput) {

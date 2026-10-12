@@ -25,9 +25,9 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (pathname === "/login" && hasSessionCookie) {
-    return NextResponse.redirect(new URL("/", request.url));
-  }
+  // /login itself decides whether an existing cookie is still a valid session
+  // (see src/app/login/page.tsx); redirecting on cookie presence alone looped
+  // forever for expired or revoked sessions.
 
   return NextResponse.next();
 }

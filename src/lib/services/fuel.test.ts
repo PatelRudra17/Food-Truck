@@ -71,4 +71,28 @@ describe("computeFuelDerivedFields", () => {
     expect(result.isAnomaly).toBe(false);
     expect(result.anomalyNote).toBeNull();
   });
+
+  it("flags implausible mileage (>100 KM/L) when the vehicle has no baseline", () => {
+    // 500km on 2L = 250 km/L -> almost certainly a mistyped reading
+    const result = computeFuelDerivedFields({
+      previousOdometerKm: 1000,
+      currentOdometerKm: 1500,
+      fuelQuantityLiters: 2,
+      fuelRate: 90,
+    });
+
+    expect(result.isAnomaly).toBe(true);
+    expect(result.anomalyNote).toContain("Implausible fuel consumption");
+  });
+
+  it("does not flag ordinary mileage when the vehicle has no baseline", () => {
+    const result = computeFuelDerivedFields({
+      previousOdometerKm: 1000,
+      currentOdometerKm: 1100,
+      fuelQuantityLiters: 10,
+      fuelRate: 90,
+    });
+
+    expect(result.isAnomaly).toBe(false);
+  });
 });

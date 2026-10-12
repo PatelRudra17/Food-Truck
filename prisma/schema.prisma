@@ -33,6 +33,7 @@ model User {
   sessions            Session[]
   auditLogs           AuditLog[]
   notifications       Notification[]
+  notificationReads   NotificationRead[]
   createdInwards      StockInward[]           @relation("InwardReceivedBy")
   requestedOutwards   StockOutward[]          @relation("OutwardRequestedBy")
   approvedOutwards    StockOutward[]          @relation("OutwardApprovedBy")
@@ -65,7 +66,6 @@ model User {
   salesOrdersApproved    SalesOrder[]           @relation("SalesOrderApprovedBy")
   tripsCreated           Trip[]                 @relation("TripCreatedBy")
   tripsLoaded            Trip[]                 @relation("TripLoadingStaff")
-  cleaningsStaffed       Cleaning[]
   shiftsSupervised       Shift[]                @relation("ShiftSupervisor")
   handoversAsPrevious    ShiftHandover[]        @relation("HandoverPreviousSupervisor")
   handoversAsNew         ShiftHandover[]        @relation("HandoverNewSupervisor")
@@ -157,6 +157,7 @@ model Warehouse {
   transfersIn        StockTransfer[]         @relation("TransferDest")
   adjustments        StockAdjustment[]
   ledgerEntries      InventoryLedger[]
+  itemStocks         ItemWarehouseStock[]
   temperatureLogs    StorageTemperatureLog[]
   procurements       Procurement[]
   procurementBatches ProcurementBatch[]
@@ -271,6 +272,7 @@ model Item {
   transferItems      StockTransferItem[]
   adjustments        StockAdjustment[]
   ledgerEntries      InventoryLedger[]
+  warehouseStocks    ItemWarehouseStock[]
   poItems            PurchaseOrderItem[]
   temperatureLogs    StorageTemperatureLog[]
   attachments        Attachment[]            @relation("ItemAttachments")
@@ -301,6 +303,20 @@ enum LedgerTxnType {
   ADJUSTMENT_POSITIVE
   ADJUSTMENT_NEGATIVE
   DAMAGED_DISPOSED
+}
+
+// Stock on hand per item per warehouse. Item.currentStock stays the company-wide
+// total (the sum of these rows); both are maintained only by applyStockMovement.
+model ItemWarehouseStock {
+  itemId      String
+  item        Item      @relation(fields: [itemId], references: [id])
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  quantity    Decimal   @default(0) @db.Decimal(14, 3)
+  updatedAt   DateTime  @updatedAt
+
+  @@id([itemId, warehouseId])
+  @@index([warehouseId])
 }
 
 model InventoryLedger {
@@ -654,7 +670,6 @@ model Vehicle {
   unloadings         Unloading[]
   trips              Trip[]
   crateReturns       CrateReturn[]
-  cleanings          Cleaning[]
 
   @@index([status])
   @@index([maintenanceState])
@@ -979,11 +994,27 @@ model Notification {
   message    String
   entityType String?
   entityId   String?
+  // Read flag for notifications sent to one user; role-wide ones track readers in NotificationRead.
   isRead     Boolean          @default(false)
   createdAt  DateTime         @default(now())
 
+  reads NotificationRead[]
+
   @@index([userId, isRead])
   @@index([createdAt])
+}
+
+// Per-user read receipts for role-wide notifications, so one person reading
+// doesn't mark it read for everyone else in the role.
+model NotificationRead {
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@id([notificationId, userId])
+  @@index([userId])
 }
 
 // Immutable audit trail — application layer must never expose update/delete for this model.
@@ -1616,8 +1647,6 @@ model Crate {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  cleanings Cleaning[]
-
   @@index([status])
 }
 
@@ -1648,34 +1677,8 @@ model CrateReturn {
 }
 
 // ==================================================
-// OPERATIONS: CLEANING / SHIFT / HANDOVER / NEXT-DAY PREP
+// OPERATIONS: SHIFT / HANDOVER / NEXT-DAY PREP
 // ==================================================
-
-enum CleaningStatus {
-  PENDING
-  IN_PROGRESS
-  COMPLETED
-}
-
-model Cleaning {
-  id           String         @id @default(cuid())
-  entityType   String // "VEHICLE" | "CRATE" | "LOCATION"
-  vehicleId    String?
-  vehicle      Vehicle?       @relation(fields: [vehicleId], references: [id])
-  crateId      String?
-  crate        Crate?         @relation(fields: [crateId], references: [id])
-  locationText String?
-  cleaningType String?
-  startTime    DateTime?
-  endTime      DateTime?
-  staffId      String?
-  staff        User?          @relation(fields: [staffId], references: [id])
-  status       CleaningStatus @default(PENDING)
-  remarks      String?
-  createdAt    DateTime       @default(now())
-
-  @@index([status])
-}
 
 enum ShiftStatus {
   ACTIVE
@@ -1695,7 +1698,6 @@ model Shift {
 
   employees   Employee[]
   labourers   Labour[]
-  attendances Attendance[]
   handovers   ShiftHandover[]
 
   @@index([status])
@@ -1756,7 +1758,7 @@ model NextDayChecklistItem {
 }
 
 // ==================================================
-// WORKFORCE: EMPLOYEES / LABOUR / ATTENDANCE / SALARY
+// WORKFORCE: EMPLOYEES / LABOUR / SALARY
 // Plain HR records, independent of login Users — see plan decision 7.
 // ==================================================
 
@@ -1775,7 +1777,6 @@ model Employee {
   updatedAt    DateTime     @updatedAt
 
   attachments Attachment[] @relation("EmployeeAttachments")
-  attendances Attendance[]
   salaries    Salary[]
 
   @@index([status])
@@ -1794,35 +1795,9 @@ model Labour {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  attendances Attendance[]
   salaries    Salary[]
 
   @@index([status])
-}
-
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  HALF_DAY
-}
-
-model Attendance {
-  id            String           @id @default(cuid())
-  date          DateTime
-  employeeId    String?
-  employee      Employee?        @relation(fields: [employeeId], references: [id])
-  labourId      String?
-  labour        Labour?          @relation(fields: [labourId], references: [id])
-  shiftId       String?
-  shift         Shift?           @relation(fields: [shiftId], references: [id])
-  status        AttendanceStatus
-  overtimeHours Decimal?         @db.Decimal(5, 2)
-  remarks       String?
-  createdAt     DateTime         @default(now())
-
-  @@unique([date, employeeId])
-  @@unique([date, labourId])
-  @@index([date])
 }
 
 enum PaymentStatus {

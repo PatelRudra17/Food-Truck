@@ -54,6 +54,7 @@ export default async function CrateReturnsPage({
         tripNumber: true,
         customer: { select: { id: true, name: true } },
         items: { select: { cratesCount: true } },
+        crateReturns: { select: { cratesReturned: true, cratesDamaged: true, cratesMissing: true } },
       },
     }),
     prisma.crate.findMany({
@@ -63,8 +64,18 @@ export default async function CrateReturnsPage({
     }),
   ]);
 
+  // "Pending" is trip-cumulative: crates still outstanding on the trip after this
+  // return and every earlier return recorded against the same trip.
+  const tripHistory = await prisma.crateReturn.findMany({
+    where: { tripId: { in: [...new Set(returns.map((cr) => cr.tripId))] } },
+    select: { tripId: true, createdAt: true, cratesReturned: true, cratesDamaged: true, cratesMissing: true },
+  });
+
   const rows: CrateReturnRow[] = returns.map((cr) => {
-    const pending = cr.cratesDispatched - cr.cratesReturned - cr.cratesDamaged - cr.cratesMissing;
+    const accountedSoFar = tripHistory
+      .filter((h) => h.tripId === cr.tripId && h.createdAt <= cr.createdAt)
+      .reduce((sum, h) => sum + h.cratesReturned + h.cratesDamaged + h.cratesMissing, 0);
+    const pending = cr.cratesDispatched - accountedSoFar;
     return {
       id: cr.id,
       tripId: cr.trip.id,
@@ -96,6 +107,10 @@ export default async function CrateReturnsPage({
                 customerId: t.customer.id,
                 customerName: t.customer.name,
                 suggestedCratesDispatched: t.items.reduce((sum, i) => sum + (i.cratesCount ?? 0), 0),
+                alreadyAccounted: t.crateReturns.reduce(
+                  (sum, r) => sum + r.cratesReturned + r.cratesDamaged + r.cratesMissing,
+                  0,
+                ),
               }))}
               crates={candidateCrates}
             />

@@ -25,8 +25,8 @@ export default async function UnloadingPage({
   await requirePermission("PROCUREMENT_VIEW");
   const user = await getSessionUser();
   // No dedicated UNLOADING permission resource exists; start/complete mutations
-  // are gated under GATE_ENTRY_EDIT (see src/lib/actions/unloading-actions.ts).
-  const canManage = hasPermission(user, "GATE_ENTRY_EDIT");
+  // accept GATE_ENTRY_EDIT or PROCUREMENT_EDIT (see src/lib/actions/unloading-actions.ts).
+  const canManage = hasPermission(user, "GATE_ENTRY_EDIT") || hasPermission(user, "PROCUREMENT_EDIT");
 
   const params = await searchParams;
   const pagination = paginationSchema.parse({ page: params.page, pageSize: params.pageSize });
@@ -67,7 +67,9 @@ export default async function UnloadingPage({
               driverName: e.driver.fullName,
               supplierName: e.supplier?.companyName ?? null,
               timeIn: e.timeIn,
-              procurementNumbers: e.procurements.map((p) => p.procurementNumber),
+              procurementNumbers: e.procurements.map(
+                (p) => `${p.procurementNumber}${p.status === "DRAFT" ? " (draft)" : ""}`,
+              ),
             }))}
             canManage={canManage}
           />
@@ -84,6 +86,12 @@ export default async function UnloadingPage({
               driverName: u.driver.fullName,
               supplierName: u.supplier?.companyName ?? null,
               unloadingStartAt: u.unloadingStartAt!,
+              batches: u.gateEntry.procurementBatches.map((b) => ({
+                id: b.id,
+                batchNumber: b.batchNumber,
+                itemName: b.item.name,
+                declaredWeight: Number(b.rawWeight),
+              })),
             }))}
             canManage={canManage}
           />

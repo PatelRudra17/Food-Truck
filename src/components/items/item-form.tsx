@@ -23,38 +23,60 @@ import { STORAGE_TYPES } from "@/lib/validators/item";
 import { createItemAction, updateItemAction } from "@/lib/actions/item-actions";
 
 const numOrBlank = z.union([z.literal(""), z.coerce.number()]);
+const nonNegOrBlank = (label: string) =>
+  z.union([z.literal(""), z.coerce.number().min(0, `${label} cannot be negative.`)]);
 
-const formSchema = z.object({
-  sku: z.string().trim().min(1, "SKU is required."),
-  itemCode: z.string().trim().min(1, "Item code is required."),
-  name: z.string().trim().min(1, "Name is required."),
-  categoryId: z.string().min(1, "Category is required."),
-  brand: z.string().default(""),
-  description: z.string().default(""),
-  unit: z.string().trim().min(1, "Unit is required."),
-  minStock: z.coerce.number().min(0).default(0),
-  maxStock: numOrBlank.default(""),
-  reorderLevel: z.coerce.number().min(0).default(0),
-  openingStock: z.coerce.number().min(0).default(0),
-  warehouseId: z.string().default(""),
-  locationId: z.string().default(""),
-  supplierId: z.string().default(""),
-  purchasePrice: numOrBlank.default(""),
-  taxPercent: numOrBlank.default(""),
-  hsnCode: z.string().default(""),
-  barcode: z.string().default(""),
-  batchTracked: z.boolean().default(false),
-  serialTracked: z.boolean().default(false),
-  expiryTracked: z.boolean().default(false),
-  imageUrl: z.string().default(""),
-  isActive: z.boolean().default(true),
-  isTemperatureSensitive: z.boolean().default(false),
-  storageMinTempC: numOrBlank.default(""),
-  storageMaxTempC: numOrBlank.default(""),
-  storageType: z.string().default(""),
-  storageLocationText: z.string().default(""),
-  shelfLifeDays: numOrBlank.default(""),
-});
+const formSchema = z
+  .object({
+    sku: z.string().trim().min(1, "SKU is required."),
+    itemCode: z.string().trim().min(1, "Item code is required."),
+    name: z.string().trim().min(1, "Name is required."),
+    categoryId: z.string().min(1, "Category is required."),
+    brand: z.string().default(""),
+    description: z.string().default(""),
+    unit: z.string().trim().min(1, "Unit is required."),
+    minStock: z.coerce.number().min(0, "Min stock cannot be negative.").default(0),
+    maxStock: nonNegOrBlank("Max stock").default(""),
+    reorderLevel: z.coerce.number().min(0, "Reorder level cannot be negative.").default(0),
+    openingStock: z.coerce.number().min(0, "Opening stock cannot be negative.").default(0),
+    warehouseId: z.string().default(""),
+    locationId: z.string().default(""),
+    supplierId: z.string().default(""),
+    purchasePrice: nonNegOrBlank("Purchase price").default(""),
+    taxPercent: z
+      .union([z.literal(""), z.coerce.number().min(0, "Tax % cannot be negative.").max(100, "Tax % cannot exceed 100.")])
+      .default(""),
+    hsnCode: z.string().default(""),
+    barcode: z.string().default(""),
+    batchTracked: z.boolean().default(false),
+    serialTracked: z.boolean().default(false),
+    expiryTracked: z.boolean().default(false),
+    imageUrl: z.string().default(""),
+    isActive: z.boolean().default(true),
+    isTemperatureSensitive: z.boolean().default(false),
+    storageMinTempC: numOrBlank.default(""),
+    storageMaxTempC: numOrBlank.default(""),
+    storageType: z.string().default(""),
+    storageLocationText: z.string().default(""),
+    shelfLifeDays: z
+      .union([
+        z.literal(""),
+        z.coerce.number().int("Shelf life must be a whole number of days.").min(0, "Shelf life cannot be negative."),
+      ])
+      .default(""),
+  })
+  .superRefine((d, ctx) => {
+    if (d.maxStock !== "" && d.maxStock < d.minStock) {
+      ctx.addIssue({ code: "custom", message: "Max stock cannot be less than min stock.", path: ["maxStock"] });
+    }
+    if (d.storageMinTempC !== "" && d.storageMaxTempC !== "" && d.storageMinTempC > d.storageMaxTempC) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Min temperature cannot be greater than max temperature.",
+        path: ["storageMinTempC"],
+      });
+    }
+  });
 
 type FormValues = z.infer<typeof formSchema>;
 type FormInput = z.input<typeof formSchema>;
@@ -251,7 +273,7 @@ export function ItemForm({
           <Field label="Min Stock" error={errors.minStock?.message}>
             <Input type="number" step="any" {...register("minStock")} />
           </Field>
-          <Field label="Max Stock">
+          <Field label="Max Stock" error={errors.maxStock?.message}>
             <Input type="number" step="any" {...register("maxStock")} />
           </Field>
           <Field label="Reorder Level" error={errors.reorderLevel?.message}>
@@ -352,10 +374,10 @@ export function ItemForm({
           <CardTitle className="text-base">Pricing &amp; Tax</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Purchase Price">
+          <Field label="Purchase Price" error={errors.purchasePrice?.message}>
             <Input type="number" step="any" {...register("purchasePrice")} />
           </Field>
-          <Field label="Tax %">
+          <Field label="Tax %" error={errors.taxPercent?.message}>
             <Input type="number" step="any" {...register("taxPercent")} />
           </Field>
           <Field label="HSN Code">
@@ -407,13 +429,13 @@ export function ItemForm({
               )}
             />
           </Field>
-          <Field label="Min Temp (°C)">
+          <Field label="Min Temp (°C)" error={errors.storageMinTempC?.message}>
             <Input type="number" step="any" disabled={!isTempSensitive} {...register("storageMinTempC")} />
           </Field>
-          <Field label="Max Temp (°C)">
+          <Field label="Max Temp (°C)" error={errors.storageMaxTempC?.message}>
             <Input type="number" step="any" disabled={!isTempSensitive} {...register("storageMaxTempC")} />
           </Field>
-          <Field label="Shelf Life (days)">
+          <Field label="Shelf Life (days)" error={errors.shelfLifeDays?.message}>
             <Input type="number" step="1" {...register("shelfLifeDays")} />
           </Field>
           <Field label="Storage Location (text)" className="sm:col-span-2 lg:col-span-4">

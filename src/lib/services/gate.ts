@@ -65,7 +65,8 @@ export type GateActivityRow = {
  */
 export async function getRecentGateActivity(filter: GateActivityFilter) {
   const dateWhere: { gte?: Date; lte?: Date } = {};
-  if (filter.from) dateWhere.gte = new Date(filter.from);
+  // Local start of day, matching the local end-of-day used for `to`.
+  if (filter.from) dateWhere.gte = new Date(`${filter.from}T00:00:00`);
   if (filter.to) {
     const to = new Date(filter.to);
     to.setHours(23, 59, 59, 999);

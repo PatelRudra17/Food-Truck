@@ -6,11 +6,35 @@ import { writeAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
-import { vehicleSchema, vehicleDocumentSchema } from "@/lib/validators/vehicle";
+import { vehicleSchema, vehicleDocumentSchema, type VehicleInput } from "@/lib/validators/vehicle";
+import { computeMaintenanceState } from "@/lib/services/maintenance";
+import { vehicleExpiryUpdateForDocument } from "@/lib/services/vehicle-expiry-sync";
 import { validateUpload, uploadObject, getSignedDownloadUrl } from "@/lib/storage";
 
 function toDateOrNull(value: string | undefined): Date | null {
   return value ? new Date(value) : null;
+}
+
+/** Vehicle numbers are normalised by vehicleSchema; this also catches legacy rows stored in other casing. */
+async function findVehicleNumberClash(vehicleNumber: string, excludeId?: string) {
+  return prisma.vehicle.findFirst({
+    where: {
+      vehicleNumber: { equals: vehicleNumber, mode: "insensitive" },
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+    select: { id: true },
+  });
+}
+
+/** Fuel target + service schedule columns shared by create and update. */
+function scheduleFields(data: VehicleInput) {
+  return {
+    fuelEfficiencyTargetKmpl: data.fuelEfficiencyTargetKmpl ?? null,
+    serviceIntervalDays: data.serviceIntervalDays ?? null,
+    serviceIntervalKm: data.serviceIntervalKm ?? null,
+    nextServiceDate: toDateOrNull(data.nextServiceDate),
+    nextServiceKm: data.nextServiceKm ?? null,
+  };
 }
 
 export async function createVehicleAction(input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -18,7 +42,7 @@ export async function createVehicleAction(input: unknown): Promise<ActionResult<
     const user = await requirePermission("VEHICLE_CREATE");
     const data = vehicleSchema.parse(input);
 
-    const existing = await prisma.vehicle.findUnique({ where: { vehicleNumber: data.vehicleNumber } });
+    const existing = await findVehicleNumberClash(data.vehicleNumber);
     if (existing) {
       return { ok: false, error: "A vehicle with this number already exists." };
     }
@@ -41,6 +65,12 @@ export async function createVehicleAction(input: unknown): Promise<ActionResult<
         currentLocation: data.currentLocation ?? null,
         status: data.status,
         imageUrl: data.imageUrl ?? null,
+        ...scheduleFields(data),
+        maintenanceState: computeMaintenanceState({
+          currentKm: 0,
+          nextServiceKm: data.nextServiceKm ?? null,
+          nextServiceDate: toDateOrNull(data.nextServiceDate),
+        }),
       },
     });
 
@@ -70,10 +100,10 @@ export async function updateVehicleAction(
     const existing = await prisma.vehicle.findUnique({ where: { id } });
     if (!existing) return { ok: false, error: "Vehicle not found." };
 
-    if (data.vehicleNumber !== existing.vehicleNumber) {
-      const clash = await prisma.vehicle.findUnique({ where: { vehicleNumber: data.vehicleNumber } });
-      if (clash) return { ok: false, error: "A vehicle with this number already exists." };
-    }
+    const clash = await findVehicleNumberClash(data.vehicleNumber, id);
+    if (clash) return { ok: false, error: "A vehicle with this number already exists." };
+
+    const schedule = scheduleFields(data);
 
     const updated = await prisma.vehicle.update({
       where: { id },
@@ -94,6 +124,12 @@ export async function updateVehicleAction(
         currentLocation: data.currentLocation ?? null,
         status: data.status,
         imageUrl: data.imageUrl ?? null,
+        ...schedule,
+        maintenanceState: computeMaintenanceState({
+          currentKm: existing.odometerKm,
+          nextServiceKm: schedule.nextServiceKm,
+          nextServiceDate: schedule.nextServiceDate,
+        }),
       },
     });
 
@@ -111,6 +147,11 @@ export async function updateVehicleAction(
         status: existing.status,
         currentDriverId: existing.currentDriverId,
         currentLocation: existing.currentLocation,
+        fuelEfficiencyTargetKmpl: existing.fuelEfficiencyTargetKmpl,
+        serviceIntervalDays: existing.serviceIntervalDays,
+        serviceIntervalKm: existing.serviceIntervalKm,
+        nextServiceDate: existing.nextServiceDate,
+        nextServiceKm: existing.nextServiceKm,
       },
       newValues: data,
     });
@@ -159,6 +200,16 @@ export async function upsertVehicleDocumentAction(
     const vehicle = await prisma.vehicle.findUnique({ where: { id: data.vehicleId } });
     if (!vehicle) return { ok: false, error: "Vehicle not found." };
 
+    if (documentId) {
+      const existingDoc = await prisma.vehicleDocument.findUnique({
+        where: { id: documentId },
+        select: { vehicleId: true },
+      });
+      if (!existingDoc || existingDoc.vehicleId !== vehicle.id) {
+        return { ok: false, error: "Vehicle document not found." };
+      }
+    }
+
     const payload = {
       vehicleId: data.vehicleId,
       docType: data.docType,
@@ -168,9 +219,19 @@ export async function upsertVehicleDocumentAction(
       verificationStatus: data.verificationStatus,
     };
 
-    const doc = documentId
-      ? await prisma.vehicleDocument.update({ where: { id: documentId }, data: payload })
-      : await prisma.vehicleDocument.create({ data: payload });
+    // Keep the vehicle's own expiry column for this document type in sync
+    // (only ever moved forward - see vehicleExpiryUpdateForDocument).
+    const expiryUpdate = vehicleExpiryUpdateForDocument(data.docType, payload.expiryDate, vehicle);
+
+    const doc = await prisma.$transaction(async (tx) => {
+      const saved = documentId
+        ? await tx.vehicleDocument.update({ where: { id: documentId }, data: payload })
+        : await tx.vehicleDocument.create({ data: payload });
+      if (expiryUpdate) {
+        await tx.vehicle.update({ where: { id: vehicle.id }, data: expiryUpdate });
+      }
+      return saved;
+    });
 
     await writeAuditLog({
       userId: user.id,
@@ -180,6 +241,19 @@ export async function upsertVehicleDocumentAction(
       newValues: payload,
     });
 
+    if (expiryUpdate) {
+      const [field] = Object.keys(expiryUpdate) as (keyof typeof expiryUpdate)[];
+      await writeAuditLog({
+        userId: user.id,
+        action: "EDIT",
+        entityType: "Vehicle",
+        entityId: vehicle.id,
+        oldValues: { [field]: vehicle[field] },
+        newValues: { ...expiryUpdate, syncedFromVehicleDocument: doc.id },
+      });
+    }
+
+    revalidatePath("/vehicles");
     revalidatePath(`/vehicles/${data.vehicleId}`);
     return { ok: true, data: { id: doc.id } };
   } catch (error) {

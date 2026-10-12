@@ -32,8 +32,10 @@ export default async function AuditLogPage({
   const action = get("action") || "";
   const entityType = get("entityType") || "";
   const userId = get("userId") || "";
-  const dateFrom = get("dateFrom") || "";
-  const dateTo = get("dateTo") || "";
+  // Ignore malformed dates from the URL instead of crashing the page.
+  const validDate = (v: string | undefined) => (v && !Number.isNaN(new Date(`${v}T00:00:00`).getTime()) ? v : "");
+  const dateFrom = validDate(get("dateFrom"));
+  const dateTo = validDate(get("dateTo"));
 
   const where = {
     ...(q
@@ -191,12 +193,25 @@ export default async function AuditLogPage({
               {Math.min(pager.page * pager.pageSize, pager.total)} of {pager.total}
             </p>
             <div className="flex gap-2">
-              <Button asChild variant="outline" size="sm" disabled={pager.page <= 1}>
-                <Link href={pageHref(pager.page - 1)}>Previous</Link>
-              </Button>
-              <Button asChild variant="outline" size="sm" disabled={pager.page >= pager.pageCount}>
-                <Link href={pageHref(pager.page + 1)}>Next</Link>
-              </Button>
+              {/* `disabled` has no effect on a Link, so render a plain disabled button at the ends. */}
+              {pager.page <= 1 ? (
+                <Button variant="outline" size="sm" disabled>
+                  Previous
+                </Button>
+              ) : (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={pageHref(pager.page - 1)}>Previous</Link>
+                </Button>
+              )}
+              {pager.page >= pager.pageCount ? (
+                <Button variant="outline" size="sm" disabled>
+                  Next
+                </Button>
+              ) : (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={pageHref(pager.page + 1)}>Next</Link>
+                </Button>
+              )}
             </div>
           </div>
         </div>

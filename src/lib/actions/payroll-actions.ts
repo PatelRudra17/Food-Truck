@@ -7,25 +7,6 @@ import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
 import { payrollSchema } from "@/lib/validators/payroll";
-import { computeSuggestedLabourEarnings } from "@/lib/services/payroll";
-
-export async function getSuggestedLabourEarningsAction(
-  labourId: string,
-  periodStart: string,
-  periodEnd: string,
-): Promise<ActionResult<{ presentDays: number; dailyWage: number; earnings: number }>> {
-  try {
-    await requirePermission("PAYROLL_CREATE");
-    if (!labourId || !periodStart || !periodEnd) {
-      return { ok: false, error: "Labour and both period dates are required." };
-    }
-    const result = await computeSuggestedLabourEarnings(labourId, new Date(periodStart), new Date(periodEnd));
-    if (!result) return { ok: false, error: "Labour record not found." };
-    return { ok: true, data: result };
-  } catch (error) {
-    return actionError(error);
-  }
-}
 
 export async function createPayrollAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   try {
@@ -41,6 +22,18 @@ export async function createPayrollAction(input: unknown): Promise<ActionResult<
     } else {
       const labour = await prisma.labour.findUnique({ where: { id: data.labourId } });
       if (!labour) return { ok: false, error: "Labour record not found." };
+    }
+
+    // One salary record per person per pay period: refuse any overlap with an existing record.
+    const overlapping = await prisma.salary.findFirst({
+      where: {
+        ...(data.personType === "EMPLOYEE" ? { employeeId: data.employeeId } : { labourId: data.labourId }),
+        periodStart: { lte: periodEnd },
+        periodEnd: { gte: periodStart },
+      },
+    });
+    if (overlapping) {
+      return { ok: false, error: "A salary record already exists for this person in an overlapping period." };
     }
 
     const netSalary = data.earnings + data.overtimeAmount - data.advances - data.deductions;

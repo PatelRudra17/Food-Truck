@@ -13,6 +13,7 @@ export default async function NewItemPage() {
   const [categories, warehouses, suppliers] = await Promise.all([
     prisma.category.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.warehouse.findMany({
+      where: { status: "ACTIVE" },
       orderBy: { name: "asc" },
       include: { locations: { orderBy: [{ rack: "asc" }, { shelf: "asc" }, { bin: "asc" }] } },
     }),

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
-import { Archive, Pencil, CalendarClock, Wallet } from "lucide-react";
+import { Archive, Pencil, Wallet } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
 import { getEmployeeById } from "@/lib/services/employee";
@@ -95,7 +95,6 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
       <Tabs defaultValue="details">
         <TabsList>
           <TabsTrigger value="details">Details</TabsTrigger>
-          <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="salary">Salary</TabsTrigger>
         </TabsList>
 
@@ -112,43 +111,6 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
                 value={employee.joiningDate ? format(employee.joiningDate, "dd MMM yyyy") : null}
               />
               <Field label="Shift" value={employee.shift?.shiftName} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="attendance" className="mt-4">
-          <Card>
-            <CardContent className="pt-4">
-              {employee.attendances.length === 0 ? (
-                <EmptyState icon={CalendarClock} title="No attendance recorded yet." />
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Shift</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Overtime (hrs)</TableHead>
-                        <TableHead>Remarks</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {employee.attendances.map((a) => (
-                        <TableRow key={a.id}>
-                          <TableCell>{format(a.date, "dd MMM yyyy")}</TableCell>
-                          <TableCell>{a.shift?.shiftName ?? "—"}</TableCell>
-                          <TableCell>
-                            <StatusBadge status={a.status} />
-                          </TableCell>
-                          <TableCell>{a.overtimeHours ? Number(a.overtimeHours).toLocaleString() : "—"}</TableCell>
-                          <TableCell>{a.remarks ?? "—"}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>

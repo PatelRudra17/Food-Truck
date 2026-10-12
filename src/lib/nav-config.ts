@@ -33,23 +33,24 @@ import {
   Route as RouteIcon,
   Send,
   Undo2,
-  Sparkles,
   CalendarClock,
   Repeat,
   ListChecks,
   Users,
   HardHat,
-  CalendarCheck,
   Wallet,
   CheckSquare,
+  ShoppingCart,
 } from "lucide-react";
 import type { PermissionCode } from "@/lib/auth/permissions";
+import { APPROVAL_CENTER_PERMISSIONS } from "@/lib/approval-permissions";
 
 export type NavItem = {
   label: string;
   href: string;
   icon: LucideIcon;
-  permission?: PermissionCode;
+  /** Shown when the user holds this permission, or any one of them when a list is given. */
+  permission?: PermissionCode | readonly PermissionCode[];
 };
 
 export type NavGroup = {
@@ -91,7 +92,10 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Sales",
-    items: [{ label: "Customers", href: "/customers", icon: Building2, permission: "CUSTOMER_VIEW" }],
+    items: [
+      { label: "Sales Orders", href: "/sales/orders", icon: ShoppingCart, permission: "SALES_ORDER_VIEW" },
+      { label: "Customers", href: "/customers", icon: Building2, permission: "CUSTOMER_VIEW" },
+    ],
   },
   {
     label: "Dispatch & Crates",
@@ -115,7 +119,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { label: "Cleaning", href: "/operations/cleaning", icon: Sparkles, permission: "OPERATIONS_VIEW" },
       { label: "Shifts", href: "/operations/shifts", icon: CalendarClock, permission: "OPERATIONS_VIEW" },
       { label: "Shift Handover", href: "/operations/shifts/handover", icon: Repeat, permission: "OPERATIONS_VIEW" },
       { label: "Next-Day Preparation", href: "/operations/next-day", icon: ListChecks, permission: "OPERATIONS_VIEW" },
@@ -126,7 +129,6 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Employees", href: "/employees", icon: Users, permission: "EMPLOYEE_VIEW" },
       { label: "Labour", href: "/labour", icon: HardHat, permission: "LABOUR_VIEW" },
-      { label: "Attendance", href: "/attendance", icon: CalendarCheck, permission: "ATTENDANCE_VIEW" },
       { label: "Payroll", href: "/payroll", icon: Wallet, permission: "PAYROLL_VIEW" },
     ],
   },
@@ -144,7 +146,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Users", href: "/settings/users", icon: UserCog, permission: "MANAGE_USERS" },
       { label: "Roles & Permissions", href: "/settings/roles", icon: ShieldCheck, permission: "MANAGE_ROLES" },
       { label: "Audit Log", href: "/settings/audit-log", icon: History, permission: "VIEW_AUDIT_LOG" },
-      { label: "Approval Center", href: "/settings/approvals", icon: CheckSquare, permission: "MANAGE_SETTINGS" },
+      { label: "Approval Center", href: "/settings/approvals", icon: CheckSquare, permission: APPROVAL_CENTER_PERMISSIONS },
       { label: "System Settings", href: "/settings", icon: Settings, permission: "MANAGE_SETTINGS" },
     ],
   },

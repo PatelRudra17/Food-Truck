@@ -10,6 +10,7 @@ import { DataTable, type PaginationMeta } from "@/components/shared/data-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { markAllNotificationsRead, markNotificationRead } from "@/lib/actions/notification-actions";
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/notification-href";
 
 export type NotificationRow = {
   id: string;
@@ -79,6 +80,7 @@ export function NotificationsClient({
                 onClick={() =>
                   startTransition(async () => {
                     await markNotificationRead(row.original.id);
+                    window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED_EVENT));
                     router.refresh();
                   })
                 }
@@ -102,6 +104,7 @@ export function NotificationsClient({
             onClick={() =>
               startTransition(async () => {
                 await markAllNotificationsRead();
+                window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED_EVENT));
                 router.refresh();
               })
             }

@@ -7,13 +7,19 @@ export const poLineItemSchema = z.object({
   taxPercent: z.coerce.number().min(0, "Tax cannot be negative").max(100, "Tax cannot exceed 100%").optional(),
 });
 
-export const purchaseOrderSchema = z.object({
-  supplierId: z.string().min(1, "Supplier is required"),
-  date: z.string().min(1, "Date is required"),
-  expectedDelivery: z.string().optional().or(z.literal("")),
-  remarks: z.string().max(1000).optional().or(z.literal("")),
-  items: z.array(poLineItemSchema).min(1, "Add at least one line item"),
-});
+export const purchaseOrderSchema = z
+  .object({
+    supplierId: z.string().min(1, "Supplier is required"),
+    date: z.string().min(1, "Date is required"),
+    expectedDelivery: z.string().optional().or(z.literal("")),
+    remarks: z.string().max(1000).optional().or(z.literal("")),
+    items: z.array(poLineItemSchema).min(1, "Add at least one line item"),
+  })
+  // Both are yyyy-MM-dd strings from <input type="date">, so string comparison is date order.
+  .refine((data) => !data.expectedDelivery || data.expectedDelivery >= data.date, {
+    message: "Expected delivery cannot be before the order date",
+    path: ["expectedDelivery"],
+  });
 
 export type PurchaseOrderInput = z.infer<typeof purchaseOrderSchema>;
 export type PoLineItemInput = z.infer<typeof poLineItemSchema>;

@@ -12,7 +12,14 @@ export default async function NewStockAdjustmentPage() {
     prisma.item.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, sku: true, unit: true, warehouseId: true, currentStock: true },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        unit: true,
+        warehouseId: true,
+        warehouseStocks: { select: { warehouseId: true, quantity: true } },
+      },
     }),
     prisma.warehouse.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" } }),
   ]);
@@ -23,7 +30,7 @@ export default async function NewStockAdjustmentPage() {
     sku: i.sku,
     unit: i.unit,
     warehouseId: i.warehouseId,
-    currentStock: Number(i.currentStock),
+    stockByWarehouse: Object.fromEntries(i.warehouseStocks.map((s) => [s.warehouseId, Number(s.quantity)])),
   }));
   const warehouseOptions = warehouses.map((w) => ({ id: w.id, name: w.name, code: w.code }));
 

@@ -1,6 +1,6 @@
 import { Plus, Download } from "lucide-react";
 import { format } from "date-fns";
-import { Prisma } from "@prisma/client";
+import { Prisma, POStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, hasPermission } from "@/lib/auth/guard";
 import { getSessionUser } from "@/lib/auth/session";
@@ -28,20 +28,14 @@ export default async function PurchaseOrdersPage({
     pageSize: params.pageSize,
   });
   const q = typeof params.q === "string" ? params.q : undefined;
-  const status = typeof params.status === "string" ? params.status : undefined;
+  // Ignore unknown status values instead of letting Prisma throw on an invalid enum.
+  const status =
+    typeof params.status === "string" && (Object.values(POStatus) as string[]).includes(params.status)
+      ? (params.status as POStatus)
+      : undefined;
 
   const where: Prisma.PurchaseOrderWhereInput = {
-    ...(status
-      ? {
-          status: status as
-            | "DRAFT"
-            | "PENDING_APPROVAL"
-            | "APPROVED"
-            | "PARTIALLY_RECEIVED"
-            | "RECEIVED"
-            | "CANCELLED",
-        }
-      : {}),
+    ...(status ? { status } : {}),
     ...(q
       ? {
           OR: [

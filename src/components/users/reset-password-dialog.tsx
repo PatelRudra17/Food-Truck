@@ -3,7 +3,6 @@
 import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -18,12 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { resetUserPasswordAction } from "@/lib/actions/user-actions";
-
-const formSchema = z.object({
-  newPassword: z.string().min(8, "Password must be at least 8 characters."),
-});
-
-type FormValues = z.infer<typeof formSchema>;
+import { resetPasswordSchema as formSchema, type ResetPasswordInput as FormValues } from "@/lib/validators/user";
 
 export function ResetPasswordDialog({
   trigger,
@@ -83,7 +77,11 @@ export function ResetPasswordDialog({
               {...register("newPassword")}
               aria-invalid={!!errors.newPassword}
             />
-            {errors.newPassword && <p className="text-sm text-destructive">{errors.newPassword.message}</p>}
+            {errors.newPassword ? (
+              <p className="text-sm text-destructive">{errors.newPassword.message}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">At least 8 characters, with a letter and a number.</p>
+            )}
           </div>
 
           <DialogFooter className="mt-4">

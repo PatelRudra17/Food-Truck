@@ -200,10 +200,11 @@ export type PendingApproval = {
 } & ApprovalDescription;
 
 /** Live aggregate of every PENDING approval across all seven workflows, for
- * the Approval Center's "Pending Approvals" section. */
-export async function getPendingApprovals(): Promise<PendingApproval[]> {
+ * the Approval Center's "Pending Approvals" section. Pass `entityTypes` to
+ * limit it to the workflows the viewer may decide. */
+export async function getPendingApprovals(entityTypes?: readonly string[]): Promise<PendingApproval[]> {
   const rows = await prisma.approval.findMany({
-    where: { decision: "PENDING" },
+    where: { decision: "PENDING", ...(entityTypes ? { entityType: { in: [...entityTypes] } } : {}) },
     include: approvalInclude,
     orderBy: { requestedAt: "asc" },
   });
@@ -222,6 +223,8 @@ export type ApprovalHistoryFilters = Pagination & {
   entityType?: string;
   dateFrom?: string;
   dateTo?: string;
+  /** When set, only approvals of these entity types are returned. */
+  allowedEntityTypes?: readonly string[];
 };
 
 export type ApprovalHistoryRow = {
@@ -239,11 +242,12 @@ export type ApprovalHistoryRow = {
 export async function getApprovalHistory(
   filters: ApprovalHistoryFilters,
 ): Promise<{ rows: ApprovalHistoryRow[]; meta: ReturnType<typeof paginationMeta> }> {
-  const { page, pageSize, decision, entityType, dateFrom, dateTo } = filters;
+  const { page, pageSize, decision, entityType, dateFrom, dateTo, allowedEntityTypes } = filters;
 
   const where: Prisma.ApprovalWhereInput = {
     ...(decision ? { decision } : {}),
     ...(entityType ? { entityType } : {}),
+    ...(allowedEntityTypes ? { AND: [{ entityType: { in: [...allowedEntityTypes] } }] } : {}),
     ...(dateFrom || dateTo
       ? {
           requestedAt: {
@@ -282,8 +286,9 @@ export async function getApprovalHistory(
 
 /** Distinct entityType values seen on Approval rows, for the history filter
  * dropdown. */
-export async function getApprovalEntityTypes(): Promise<string[]> {
+export async function getApprovalEntityTypes(allowedEntityTypes?: readonly string[]): Promise<string[]> {
   const rows = await prisma.approval.findMany({
+    where: allowedEntityTypes ? { entityType: { in: [...allowedEntityTypes] } } : undefined,
     distinct: ["entityType"],
     select: { entityType: true },
     orderBy: { entityType: "asc" },

@@ -25,7 +25,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   const supplier = await prisma.supplier.findUnique({ where: { id } });
   if (!supplier) notFound();
 
-  const [purchaseOrders, items, inwards, attachments, procurements, wastages, procurementAgg] = await Promise.all([
+  const [purchaseOrders, items, inwards, attachments, procurements, wastages, procurementAgg, receivedInwardItems] = await Promise.all([
     prisma.purchaseOrder.findMany({
       where: { supplierId: id },
       orderBy: { date: "desc" },
@@ -75,7 +75,26 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
       where: { procurement: { supplierId: id } },
       _sum: { quantity: true, total: true },
     }),
+    // Goods received through Stock Inward (with or without a PO) count as supplied too.
+    prisma.stockInwardItem.findMany({
+      where: { inward: { supplierId: id, status: "RECEIVED" } },
+      select: { quantity: true, total: true, poItem: { select: { rate: true, taxPercent: true } } },
+    }),
   ]);
+
+  // An inward line's own total wins; otherwise value it at the linked PO line's rate (+ tax).
+  const inwardTotals = receivedInwardItems.reduce(
+    (acc, line) => {
+      const qty = Number(line.quantity);
+      let value = 0;
+      if (line.total != null) value = Number(line.total);
+      else if (line.poItem) value = qty * Number(line.poItem.rate) * (1 + Number(line.poItem.taxPercent ?? 0) / 100);
+      return { quantity: acc.quantity + qty, value: acc.value + value };
+    },
+    { quantity: 0, value: 0 },
+  );
+  const totalQuantitySupplied = Number(procurementAgg._sum.quantity ?? 0) + inwardTotals.quantity;
+  const totalPurchaseValue = Number(procurementAgg._sum.total ?? 0) + inwardTotals.value;
 
   const canEdit = hasPermission(user, "SUPPLIER_EDIT");
 
@@ -115,7 +134,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             <CardTitle className="text-sm text-muted-foreground">Total Quantity Supplied</CardTitle>
           </CardHeader>
           <CardContent className="text-lg font-medium tabular-nums">
-            {Number(procurementAgg._sum.quantity ?? 0).toLocaleString()}
+            {totalQuantitySupplied.toLocaleString()}
           </CardContent>
         </Card>
         <Card>
@@ -123,7 +142,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             <CardTitle className="text-sm text-muted-foreground">Total Purchase Value</CardTitle>
           </CardHeader>
           <CardContent className="text-lg font-medium tabular-nums">
-            ₹{Number(procurementAgg._sum.total ?? 0).toLocaleString()}
+            ₹{totalPurchaseValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
           </CardContent>
         </Card>
         <Card>

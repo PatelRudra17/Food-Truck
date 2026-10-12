@@ -9,18 +9,33 @@ import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
 import { createItemSchema, itemBaseSchema } from "@/lib/validators/item";
 import { applyStockMovement } from "@/lib/services/inventory";
+import type { z } from "zod";
+
+/** Field-level messages from a failed parse, so the form shows "Max stock cannot be less than min stock." rather than raw Zod JSON. */
+function validationFailure(error: z.ZodError): ActionResult<never> {
+  const fieldErrors: Record<string, string[]> = {};
+  for (const issue of error.issues) {
+    const key = issue.path.join(".") || "_form";
+    (fieldErrors[key] ??= []).push(issue.message);
+  }
+  return { ok: false, error: error.issues[0]?.message ?? "Please check the form and try again.", fieldErrors };
+}
 
 export async function createItemAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("ITEM_CREATE");
-    const data = createItemSchema.parse(input);
+    const parsed = createItemSchema.safeParse(input);
+    if (!parsed.success) return validationFailure(parsed.error);
+    const data = parsed.data;
 
-    const [skuTaken, codeTaken] = await Promise.all([
+    const [skuTaken, codeTaken, barcodeTaken] = await Promise.all([
       prisma.item.findUnique({ where: { sku: data.sku } }),
       prisma.item.findUnique({ where: { itemCode: data.itemCode } }),
+      data.barcode ? prisma.item.findUnique({ where: { barcode: data.barcode } }) : null,
     ]);
     if (skuTaken) throw new Error(`SKU "${data.sku}" is already in use.`);
     if (codeTaken) throw new Error(`Item code "${data.itemCode}" is already in use.`);
+    if (barcodeTaken) throw new Error(`Barcode "${data.barcode}" is already in use.`);
 
     const category = await prisma.category.findUnique({ where: { id: data.categoryId } });
     if (!category) throw new Error("Selected category was not found.");
@@ -96,7 +111,9 @@ export async function createItemAction(input: unknown): Promise<ActionResult<{ i
 export async function updateItemAction(id: string, input: unknown): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("ITEM_EDIT");
-    const data = itemBaseSchema.parse(input);
+    const parsed = itemBaseSchema.safeParse(input);
+    if (!parsed.success) return validationFailure(parsed.error);
+    const data = parsed.data;
 
     const existing = await prisma.item.findUnique({ where: { id } });
     if (!existing) throw new Error("Item not found.");

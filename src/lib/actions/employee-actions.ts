@@ -7,15 +7,24 @@ import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
 import { employeeSchema } from "@/lib/validators/employee";
+import type { Prisma } from "@prisma/client";
+import { maxCodeSuffix, nextCodeFromMax, retryOnUniqueConflict } from "@/lib/master-codes";
 
 function toDateOrNull(value: string | undefined): Date | null {
   return value ? new Date(value) : null;
 }
 
-/** Master-data code — sequential, not via the transactional nextDocumentNumber sequence. */
-async function nextEmployeeCode(): Promise<string> {
-  const count = await prisma.employee.count();
-  return `EMP-${String(count + 1).padStart(3, "0")}`;
+/**
+ * Master-data code — one past the highest existing EMP-### suffix (a count could repeat a
+ * code after deletions). Concurrent creates can still pick the same code; the unique index
+ * rejects the loser and createEmployeeAction retries.
+ */
+async function nextEmployeeCode(tx: Prisma.TransactionClient): Promise<string> {
+  const rows = await tx.employee.findMany({
+    where: { employeeCode: { startsWith: "EMP-" } },
+    select: { employeeCode: true },
+  });
+  return nextCodeFromMax("EMP", maxCodeSuffix("EMP", rows.map((r) => r.employeeCode)));
 }
 
 export async function createEmployeeAction(input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -28,20 +37,24 @@ export async function createEmployeeAction(input: unknown): Promise<ActionResult
       if (!shift) return { ok: false, error: "Selected shift not found." };
     }
 
-    const employeeCode = await nextEmployeeCode();
-
-    const created = await prisma.employee.create({
-      data: {
-        employeeCode,
-        name: data.name,
-        mobile: data.mobile,
-        department: data.department ?? null,
-        roleTitle: data.roleTitle ?? null,
-        joiningDate: toDateOrNull(data.joiningDate),
-        shiftId: data.shiftId ?? null,
-        status: data.status,
-      },
-    });
+    // Retry the whole transaction (new code each time) if another create took the same code.
+    const created = await retryOnUniqueConflict("employeeCode", () =>
+      prisma.$transaction(async (tx) => {
+        const employeeCode = await nextEmployeeCode(tx);
+        return tx.employee.create({
+          data: {
+            employeeCode,
+            name: data.name,
+            mobile: data.mobile,
+            department: data.department ?? null,
+            roleTitle: data.roleTitle ?? null,
+            joiningDate: toDateOrNull(data.joiningDate),
+            shiftId: data.shiftId ?? null,
+            status: data.status,
+          },
+        });
+      }),
+    );
 
     await writeAuditLog({
       userId: user.id,

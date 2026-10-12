@@ -33,7 +33,7 @@ export function TemperatureLogTable({ rows, pagination }: { rows: TemperatureLog
         header: "Item",
         cell: ({ row }) => (
           <div>
-            <Link href={`/storage-temperature/${row.original.itemId}`} className="font-medium hover:underline">
+            <Link href={`/storage-temperature?itemId=${row.original.itemId}`} className="font-medium hover:underline">
               {row.original.itemName}
             </Link>
             <p className="text-xs text-muted-foreground">{row.original.itemSku}</p>

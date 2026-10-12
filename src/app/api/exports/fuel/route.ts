@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
+import { dateParam } from "@/lib/validators/common";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/auth/guard";
 import { prisma } from "@/lib/prisma";
 import { buildExcelBuffer, fileResponseHeaders } from "@/lib/services/export";
 import { writeAuditLog } from "@/lib/audit";
+import { fuelTripLabels } from "@/lib/services/fuel-trips";
 import { format } from "date-fns";
 
 export async function GET(request: NextRequest) {
@@ -15,8 +17,8 @@ export async function GET(request: NextRequest) {
   const driverId = sp.get("driverId") || "";
   const fuelType = sp.get("fuelType") || "";
   const fuelStation = sp.get("fuelStation")?.trim() || "";
-  const dateFrom = sp.get("dateFrom") || "";
-  const dateTo = sp.get("dateTo") || "";
+  const dateFrom = dateParam(sp.get("dateFrom"));
+  const dateTo = dateParam(sp.get("dateTo"));
   const showVoided = sp.get("showVoided") === "1";
 
   const where: Prisma.FuelEntryWhereInput = {
@@ -29,8 +31,8 @@ export async function GET(request: NextRequest) {
     ...(dateFrom || dateTo
       ? {
           date: {
-            ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-            ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59`) } : {}),
+            ...(dateFrom ? { gte: new Date(`${dateFrom}T00:00:00`) } : {}),
+            ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59.999`) } : {}),
           },
         }
       : {}),
@@ -45,11 +47,13 @@ export async function GET(request: NextRequest) {
     orderBy: { date: "desc" },
   });
 
+  const tripLabels = await fuelTripLabels(entries.map((e) => e.tripId));
+
   const rows = entries.map((e) => [
     format(e.date, "dd MMM yyyy"),
     e.vehicle.vehicleNumber,
     e.driver?.fullName ?? "",
-    e.tripId ?? "",
+    e.tripId ? (tripLabels.get(e.tripId) ?? e.tripId) : "",
     e.fuelStationVendor ?? "",
     e.fuelType,
     Number(e.previousOdometerKm),
@@ -70,7 +74,7 @@ export async function GET(request: NextRequest) {
       "Date",
       "Vehicle",
       "Driver",
-      "Trip ID",
+      "Trip",
       "Fuel Station",
       "Fuel Type",
       "Prev Odometer (km)",

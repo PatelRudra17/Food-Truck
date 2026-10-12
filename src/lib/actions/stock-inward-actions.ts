@@ -1,6 +1,6 @@
 "use server";
 
-import { Prisma, InwardStatus, ApprovalDecision } from "@prisma/client";
+import { Prisma, InwardStatus, ApprovalDecision, POStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
 import { writeAuditLog } from "@/lib/audit";
@@ -12,7 +12,8 @@ import { notifyRoleByName } from "@/lib/services/notifications";
 import { validateUpload, uploadObject, getSignedDownloadUrl } from "@/lib/storage";
 import type { ActionResult } from "@/lib/validators/common";
 import { actionError } from "@/lib/validators/common";
-import { createInwardSchema, updateInwardSchema } from "@/lib/validators/stock-inward";
+import { createInwardSchema, updateInwardSchema, type CreateInwardInput } from "@/lib/validators/stock-inward";
+import { assertSeparateApprover } from "@/lib/services/approval-policy";
 
 function computeLineTotal(quantity: number, rate?: number | null, taxPercent?: number | null) {
   if (rate == null) return null;
@@ -21,12 +22,46 @@ function computeLineTotal(quantity: number, rate?: number | null, taxPercent?: n
   return base + tax;
 }
 
+/**
+ * An inward raised against a PO must reference an open PO (APPROVED /
+ * PARTIALLY_RECEIVED) from the same supplier, and every line's poItemId must
+ * be a line of THAT PO for the same item. Quantity limits are enforced at
+ * receipt time by applyReceiptToPurchaseOrder, since other inwards may be
+ * received in between.
+ */
+async function assertInwardPoLinkage(tx: Prisma.TransactionClient, data: CreateInwardInput) {
+  const linkedLines = data.items.filter((item) => item.poItemId);
+  if (!data.purchaseOrderId) {
+    if (linkedLines.length > 0) throw new Error("Purchase order lines can only be used on an inward linked to that purchase order.");
+    return;
+  }
+
+  const po = await tx.purchaseOrder.findUnique({ where: { id: data.purchaseOrderId }, include: { items: true } });
+  if (!po) throw new Error("Selected purchase order was not found.");
+  if (po.status !== POStatus.APPROVED && po.status !== POStatus.PARTIALLY_RECEIVED) {
+    throw new Error(`Purchase order ${po.poNumber} is not open for receiving.`);
+  }
+  if (data.supplierId && data.supplierId !== po.supplierId) {
+    throw new Error(`Purchase order ${po.poNumber} belongs to a different supplier.`);
+  }
+
+  const poItemsById = new Map(po.items.map((line) => [line.id, line]));
+  for (const item of linkedLines) {
+    const poItem = poItemsById.get(item.poItemId as string);
+    if (!poItem) throw new Error(`A line item does not belong to purchase order ${po.poNumber}.`);
+    if (poItem.itemId !== item.itemId) {
+      throw new Error(`A line item does not match the item on its purchase order ${po.poNumber} line.`);
+    }
+  }
+}
+
 export async function createInwardAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("STOCK_INWARD_CREATE");
     const data = createInwardSchema.parse(input);
 
     const created = await prisma.$transaction(async (tx) => {
+      await assertInwardPoLinkage(tx, data);
       const inwardNumber = await nextDocumentNumber(tx, "STOCK_INWARD");
       return tx.stockInward.create({
         data: {
@@ -89,6 +124,7 @@ export async function updateInwardAction(
       if (existing.status !== InwardStatus.DRAFT) {
         throw new Error("Only draft inwards can be edited.");
       }
+      await assertInwardPoLinkage(tx, data);
 
       await tx.stockInwardItem.deleteMany({ where: { inwardId: id } });
       await tx.stockInward.update({
@@ -197,6 +233,7 @@ export async function approveInwardAction(id: string, comment?: string): Promise
         where: { inwardFk: id, decision: ApprovalDecision.PENDING },
         orderBy: { requestedAt: "desc" },
       });
+      await assertSeparateApprover(tx, user.id, [existing.receivedById, approval?.requestedById]);
       if (approval) {
         await tx.approval.update({
           where: { id: approval.id },
@@ -280,6 +317,15 @@ export async function receiveInwardAction(id: string): Promise<ActionResult> {
       if (inward.status !== InwardStatus.APPROVED) {
         throw new Error("Only approved inwards can be marked as received.");
       }
+      // The PO may have been cancelled (or fully received) since this inward was drafted.
+      if (inward.purchaseOrderId) {
+        const po = await tx.purchaseOrder.findUniqueOrThrow({ where: { id: inward.purchaseOrderId } });
+        if (po.status !== POStatus.APPROVED && po.status !== POStatus.PARTIALLY_RECEIVED) {
+          throw new Error(
+            `Purchase order ${po.poNumber} is ${po.status.toLowerCase().replace(/_/g, " ")} and cannot be received against.`,
+          );
+        }
+      }
 
       for (const item of inward.items) {
         await applyStockMovement(tx, {
@@ -299,6 +345,7 @@ export async function receiveInwardAction(id: string): Promise<ActionResult> {
           .filter((item) => item.poItemId)
           .map((item) => ({ poItemId: item.poItemId as string, quantity: item.quantity }));
         if (receipts.length > 0) {
+          // Throws if any line would be received beyond its remaining PO quantity.
           await applyReceiptToPurchaseOrder(tx, { poId: inward.purchaseOrderId, receipts });
         }
       }

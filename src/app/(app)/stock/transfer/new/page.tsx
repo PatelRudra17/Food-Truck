@@ -11,9 +11,15 @@ export default async function NewStockTransferPage() {
   const [warehouses, items] = await Promise.all([
     prisma.warehouse.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" } }),
     prisma.item.findMany({
-      where: { isActive: true, warehouseId: { not: null } },
+      where: { isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, sku: true, unit: true, warehouseId: true, currentStock: true },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        unit: true,
+        warehouseStocks: { where: { quantity: { gt: 0 } }, select: { warehouseId: true, quantity: true } },
+      },
     }),
   ]);
 
@@ -23,8 +29,7 @@ export default async function NewStockTransferPage() {
     name: i.name,
     sku: i.sku,
     unit: i.unit,
-    warehouseId: i.warehouseId as string,
-    currentStock: Number(i.currentStock),
+    stockByWarehouse: Object.fromEntries(i.warehouseStocks.map((s) => [s.warehouseId, Number(s.quantity)])),
   }));
 
   return (

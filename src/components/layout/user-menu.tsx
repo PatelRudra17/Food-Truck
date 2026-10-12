@@ -23,7 +23,17 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-export function UserMenu({ name, email, role }: { name: string; email: string; role: string }) {
+export function UserMenu({
+  name,
+  email,
+  role,
+  canManageSettings,
+}: {
+  name: string;
+  email: string;
+  role: string;
+  canManageSettings: boolean;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -48,11 +58,13 @@ export function UserMenu({ name, email, role }: { name: string; email: string; r
             <User className="mr-2 h-4 w-4" /> Profile &amp; Account
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/settings">
-            <Settings className="mr-2 h-4 w-4" /> Settings
-          </Link>
-        </DropdownMenuItem>
+        {canManageSettings && (
+          <DropdownMenuItem asChild>
+            <Link href="/settings">
+              <Settings className="mr-2 h-4 w-4" /> Settings
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <form action={logoutAction}>
           <DropdownMenuItem asChild>

@@ -1,6 +1,6 @@
 "use server";
 
-import { Prisma, Grade, type TripStatus } from "@prisma/client";
+import { Prisma, Grade, type TripStatus, type SalesOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/guard";
 import { writeAuditLog } from "@/lib/audit";
@@ -16,6 +16,128 @@ function revalidateTrip(id?: string) {
   revalidatePath("/dispatch");
   revalidatePath("/dispatch/trips");
   if (id) revalidatePath(`/dispatch/trips/${id}`);
+}
+
+function revalidateSalesOrders(ids: Iterable<string>) {
+  revalidatePath("/sales/orders");
+  for (const id of ids) revalidatePath(`/sales/orders/${id}`);
+}
+
+/** Trip statuses whose goods have physically left (stock already decremented). */
+const SHIPPED_TRIP_STATUSES: TripStatus[] = ["DISPATCHED", "DELIVERED", "RETURNED"];
+
+/** Sales order statuses a trip may be raised against. */
+const DISPATCHABLE_SO_STATUSES: SalesOrderStatus[] = ["APPROVED", "READY_FOR_DISPATCH", "PARTIALLY_FULFILLED"];
+
+/**
+ * SalesOrderItem.fulfilledQty is the quantity COMMITTED to non-cancelled trips
+ * (incremented at trip creation, released on cancel) and is what caps new
+ * trips. The SO's status, however, reflects what has actually SHIPPED: the
+ * sum of TripItem quantities on dispatched/delivered/returned trips per line.
+ * All lines shipped in full -> COMPLETED, some shipped -> PARTIALLY_FULFILLED.
+ * Orders not yet in a dispatchable/fulfilment state are left alone.
+ */
+async function recomputeSalesOrderStatus(tx: Prisma.TransactionClient, salesOrderId: string) {
+  const so = await tx.salesOrder.findUnique({ where: { id: salesOrderId }, include: { items: true } });
+  if (!so) return;
+  if (!([...DISPATCHABLE_SO_STATUSES, "COMPLETED"] as SalesOrderStatus[]).includes(so.status)) return;
+
+  const shippedRows = await tx.tripItem.groupBy({
+    by: ["salesOrderItemId"],
+    where: {
+      salesOrderItemId: { in: so.items.map((i) => i.id) },
+      trip: { status: { in: SHIPPED_TRIP_STATUSES } },
+    },
+    _sum: { quantity: true },
+  });
+  const shippedByLine = new Map(
+    shippedRows.map((r) => [r.salesOrderItemId, new Prisma.Decimal(r._sum.quantity ?? 0)]),
+  );
+  const shipped = (lineId: string) => shippedByLine.get(lineId) ?? new Prisma.Decimal(0);
+
+  const allShipped = so.items.length > 0 && so.items.every((i) => shipped(i.id).gte(i.quantity));
+  const anyShipped = so.items.some((i) => shipped(i.id).gt(0));
+
+  const nextStatus: SalesOrderStatus = allShipped
+    ? "COMPLETED"
+    : anyShipped
+      ? "PARTIALLY_FULFILLED"
+      : so.status === "COMPLETED" || so.status === "PARTIALLY_FULFILLED"
+        ? "READY_FOR_DISPATCH"
+        : so.status;
+
+  if (nextStatus !== so.status) {
+    await tx.salesOrder.update({ where: { id: so.id }, data: { status: nextStatus } });
+  }
+}
+
+/** Every sales order a trip touches — via Trip.salesOrderId or any line's salesOrderItemId. */
+/**
+ * Takes a trip line's graded stock from wherever it sits: the item's home warehouse
+ * first, then the warehouses holding the most. Any shortfall (only possible when the
+ * stock check was overridden) is applied to the home warehouse, so the normal
+ * negative-stock rule in applyGradeStockMovement decides whether it's allowed.
+ */
+async function takeGradeStockForTrip(
+  tx: Prisma.TransactionClient,
+  params: {
+    itemId: string;
+    homeWarehouseId: string | null;
+    grade: Grade;
+    quantity: number;
+    trip: { id: string; tripNumber: string };
+    userId: string;
+  },
+) {
+  const stocks = await tx.itemGradeStock.findMany({
+    where: { itemId: params.itemId, grade: params.grade, quantity: { gt: 0 } },
+    orderBy: { quantity: "desc" },
+  });
+  stocks.sort((a, b) => Number(b.warehouseId === params.homeWarehouseId) - Number(a.warehouseId === params.homeWarehouseId));
+
+  const take = (warehouseId: string, quantity: Prisma.Decimal) =>
+    applyGradeStockMovement(tx, {
+      itemId: params.itemId,
+      warehouseId,
+      grade: params.grade,
+      transactionType: "DISPATCH",
+      direction: "DECREASE",
+      quantity,
+      referenceType: "Trip",
+      referenceId: params.trip.id,
+      referenceNumber: params.trip.tripNumber,
+      userId: params.userId,
+    });
+
+  let remaining = new Prisma.Decimal(params.quantity);
+  for (const stock of stocks) {
+    if (remaining.lte(0)) break;
+    const quantity = Prisma.Decimal.min(remaining, stock.quantity);
+    await take(stock.warehouseId, quantity);
+    remaining = remaining.minus(quantity);
+  }
+  if (remaining.gt(0)) {
+    const warehouseId = params.homeWarehouseId ?? stocks[0]?.warehouseId;
+    if (!warehouseId) throw new Error(`There is no ${params.grade.replace("_", " ")} stock of this item in any warehouse.`);
+    await take(warehouseId, remaining);
+  }
+}
+
+async function linkedSalesOrderIds(
+  tx: Prisma.TransactionClient,
+  trip: { salesOrderId: string | null; items: { salesOrderItemId: string | null }[] },
+) {
+  const ids = new Set<string>();
+  if (trip.salesOrderId) ids.add(trip.salesOrderId);
+  const lineIds = trip.items.map((i) => i.salesOrderItemId).filter((v): v is string => !!v);
+  if (lineIds.length > 0) {
+    const lines = await tx.salesOrderItem.findMany({
+      where: { id: { in: lineIds } },
+      select: { salesOrderId: true },
+    });
+    for (const line of lines) ids.add(line.salesOrderId);
+  }
+  return [...ids];
 }
 
 /**
@@ -45,26 +167,13 @@ export async function createTripAction(input: unknown): Promise<ActionResult<{ i
     const items = await prisma.item.findMany({ where: { id: { in: itemIds } } });
     const itemsById = new Map(items.map((i) => [i.id, i]));
 
-    // Trip/TripItem carry no warehouseId field (schema gap — see report). The
-    // warehouse to check/move stock against is inferred from each Item's own
-    // (optional) default warehouse assignment.
+    // Trip/TripItem carry no warehouse: stock is checked across all warehouses and
+    // taken home-warehouse first at dispatch (see takeGradeStockForTrip).
     const eligibilityItems: TripEligibilityItem[] = [];
     for (const line of data.items) {
       const item = itemsById.get(line.itemId);
       if (!item) return { ok: false, error: "One of the selected items no longer exists." };
-      if (!item.warehouseId) {
-        return {
-          ok: false,
-          error: `Item "${item.name}" has no assigned warehouse, so its stock cannot be checked for dispatch.`,
-        };
-      }
-      eligibilityItems.push({
-        itemId: item.id,
-        itemName: item.name,
-        warehouseId: item.warehouseId,
-        grade: line.grade,
-        quantity: line.quantity,
-      });
+      eligibilityItems.push({ itemId: item.id, itemName: item.name, grade: line.grade, quantity: line.quantity });
     }
 
     const eligibility = await checkTripEligibility({ vehicle, driver, items: eligibilityItems });
@@ -87,7 +196,48 @@ export async function createTripAction(input: unknown): Promise<ActionResult<{ i
       overrideUsed = true;
     }
 
+    const linesWithSoItem = data.items.filter((line) => line.salesOrderItemId);
+    if (linesWithSoItem.length > 0 && !data.salesOrderId) {
+      return { ok: false, error: "Sales order lines can only be dispatched on a trip linked to that sales order." };
+    }
+
     const created = await prisma.$transaction(async (tx) => {
+      // Validate the sales order link inside the transaction so the remaining-quantity
+      // check reads the same fulfilledQty values the increments below build on.
+      if (data.salesOrderId) {
+        const so = await tx.salesOrder.findUnique({ where: { id: data.salesOrderId }, include: { items: true } });
+        if (!so) throw new Error("Selected sales order does not exist.");
+        if (!DISPATCHABLE_SO_STATUSES.includes(so.status)) {
+          throw new Error(
+            `Sales order ${so.soNumber} is ${so.status.toLowerCase().replace(/_/g, " ")} and cannot be dispatched.`,
+          );
+        }
+        if (so.customerId !== data.customerId) {
+          throw new Error(`Sales order ${so.soNumber} belongs to a different customer than the one selected for this trip.`);
+        }
+
+        const soItemsById = new Map(so.items.map((i) => [i.id, i]));
+        const requestedByLine = new Map<string, number>();
+        for (const line of linesWithSoItem) {
+          const soItem = soItemsById.get(line.salesOrderItemId as string);
+          if (!soItem) throw new Error(`A trip line does not belong to sales order ${so.soNumber}.`);
+          if (soItem.itemId !== line.itemId) {
+            throw new Error(`A trip line's item does not match its sales order ${so.soNumber} line.`);
+          }
+          requestedByLine.set(soItem.id, (requestedByLine.get(soItem.id) ?? 0) + line.quantity);
+        }
+        for (const [lineId, requested] of requestedByLine) {
+          const soItem = soItemsById.get(lineId)!;
+          const remaining = Number(soItem.quantity) - Number(soItem.fulfilledQty);
+          if (requested > remaining + 1e-9) {
+            const itemName = itemsById.get(soItem.itemId)?.name ?? "item";
+            throw new Error(
+              `Only ${Math.max(0, remaining).toLocaleString()} of "${itemName}" remains on sales order ${so.soNumber}; this trip requests ${requested.toLocaleString()}.`,
+            );
+          }
+        }
+      }
+
       const tripNumber = await nextDocumentNumber(tx, "TRIP");
       const trip = await tx.trip.create({
         data: {
@@ -117,19 +267,13 @@ export async function createTripAction(input: unknown): Promise<ActionResult<{ i
         },
       });
 
-      // Best-effort fulfilledQty bump on the linked SalesOrderItem(s). The Sales
-      // Order module (built in parallel) owns its own status-transition logic —
-      // we only nudge this counter and never fail Trip creation over it.
-      for (const line of data.items) {
-        if (!line.salesOrderItemId) continue;
-        try {
-          await tx.salesOrderItem.update({
-            where: { id: line.salesOrderItemId },
-            data: { fulfilledQty: { increment: line.quantity } },
-          });
-        } catch {
-          // Referenced SalesOrderItem may not exist (module not yet populated) — ignore.
-        }
+      // Commit the quantity against the SO lines (validated above). Released again by
+      // cancelTripAction; the SO's status is recomputed from shipped quantity on dispatch.
+      for (const line of linesWithSoItem) {
+        await tx.salesOrderItem.update({
+          where: { id: line.salesOrderItemId as string },
+          data: { fulfilledQty: { increment: line.quantity } },
+        });
       }
 
       return trip;
@@ -154,6 +298,7 @@ export async function createTripAction(input: unknown): Promise<ActionResult<{ i
     }
 
     revalidateTrip(created.id);
+    if (data.salesOrderId) revalidateSalesOrders([data.salesOrderId]);
     return { ok: true, data: { id: created.id } };
   } catch (error) {
     return actionError(error);
@@ -202,29 +347,11 @@ export async function previewTripEligibilityAction(input: {
     for (const line of validLines) {
       const item = itemsById.get(line.itemId);
       if (!item) continue;
-      if (!item.warehouseId) {
-        eligibilityItems.push({ itemId: item.id, itemName: item.name, warehouseId: "", grade: line.grade as Grade, quantity: line.quantity });
-        continue;
-      }
-      eligibilityItems.push({
-        itemId: item.id,
-        itemName: item.name,
-        warehouseId: item.warehouseId,
-        grade: line.grade as Grade,
-        quantity: line.quantity,
-      });
+      eligibilityItems.push({ itemId: item.id, itemName: item.name, grade: line.grade as Grade, quantity: line.quantity });
     }
 
-    // Items with no assigned warehouse can't be stock-checked — surface that plainly
-    // rather than querying getItemGradeStock with an empty warehouseId.
-    const unassigned = eligibilityItems.filter((i) => !i.warehouseId);
-    const checkable = eligibilityItems.filter((i) => i.warehouseId);
-
-    const result = await checkTripEligibility({ vehicle, driver, items: checkable });
-    const stockReasons = [
-      ...result.stockReasons,
-      ...unassigned.map((i) => `Item "${i.itemName}" has no assigned warehouse, so its stock cannot be checked.`),
-    ];
+    const result = await checkTripEligibility({ vehicle, driver, items: eligibilityItems });
+    const stockReasons = result.stockReasons;
 
     return {
       ok: true,
@@ -283,6 +410,18 @@ export async function listTripsAction(params: {
   ]);
 
   return { trips, pagination: paginationMeta(total, pagination) };
+}
+
+/**
+ * Puts a vehicle back to AVAILABLE once its trip is over — but only if it is
+ * currently ON_TRIP and no other shipped-but-not-returned trip still uses it.
+ */
+async function releaseVehicleFromTrip(tx: Prisma.TransactionClient, vehicleId: string, tripId: string) {
+  const otherActive = await tx.trip.count({
+    where: { vehicleId, id: { not: tripId }, status: { in: ["DISPATCHED", "DELIVERED"] } },
+  });
+  if (otherActive > 0) return;
+  await tx.vehicle.updateMany({ where: { id: vehicleId, status: "ON_TRIP" }, data: { status: "AVAILABLE" } });
 }
 
 async function requireTripInStatus(id: string, expected: TripStatus[]) {
@@ -370,36 +509,62 @@ export async function markTripLoadedAction(id: string): Promise<ActionResult<{ i
  * The one status transition that moves real inventory: decrements grade
  * stock (and the generic Item.currentStock via applyGradeStockMovement) for
  * every TripItem with transactionType DISPATCH / direction DECREASE.
+ *
+ * In the same transaction it also: assigns physical crates (sum of the trip's
+ * TripItem.cratesCount) to the customer as WITH_CUSTOMER, marks the vehicle
+ * ON_TRIP, and recomputes the status of every linked sales order.
  */
 export async function dispatchTripAction(id: string): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("TRIP_EDIT");
-    const trip = await prisma.trip.findUnique({ where: { id }, include: { items: true } });
+    const trip = await prisma.trip.findUnique({
+      where: { id },
+      include: { items: true, customer: { select: { name: true } }, vehicle: { select: { vehicleNumber: true, status: true } } },
+    });
     if (!trip) return { ok: false, error: "Trip not found." };
     if (trip.status !== "LOADED") {
       return { ok: false, error: `Trip must be Loaded before it can be dispatched (current status: ${trip.status}).` };
     }
+    if (trip.vehicle.status === "ON_TRIP") {
+      return { ok: false, error: `Vehicle ${trip.vehicle.vehicleNumber} is already out on another trip.` };
+    }
+
+    const cratesNeeded = trip.items.reduce((sum, line) => sum + (line.cratesCount ?? 0), 0);
 
     const itemIds = [...new Set(trip.items.map((line) => line.itemId))];
     const items = await prisma.item.findMany({ where: { id: { in: itemIds } } });
     const itemsById = new Map(items.map((i) => [i.id, i]));
 
-    await prisma.$transaction(async (tx) => {
-      for (const line of trip.items) {
-        const item = itemsById.get(line.itemId);
-        if (!item?.warehouseId) {
-          throw new Error(`Item "${item?.name ?? line.itemId}" has no assigned warehouse; cannot dispatch.`);
+    const { crateCodes, crateIds, salesOrderIds } = await prisma.$transaction(async (tx) => {
+      // Physical crates leave with the trip: oldest-idle free crates first.
+      let crates: { id: string; crateCode: string }[] = [];
+      if (cratesNeeded > 0) {
+        crates = await tx.crate.findMany({
+          where: { status: { in: ["AVAILABLE", "READY"] } },
+          orderBy: { updatedAt: "asc" },
+          take: cratesNeeded,
+          select: { id: true, crateCode: true },
+        });
+        if (crates.length < cratesNeeded) {
+          throw new Error(`Only ${crates.length} crates are available; this trip needs ${cratesNeeded}.`);
         }
-        await applyGradeStockMovement(tx, {
+        // Status guard in the WHERE so a crate grabbed concurrently by another dispatch isn't double-assigned.
+        const assigned = await tx.crate.updateMany({
+          where: { id: { in: crates.map((c) => c.id) }, status: { in: ["AVAILABLE", "READY"] } },
+          data: { status: "WITH_CUSTOMER", customerId: trip.customerId, currentLocation: trip.customer.name },
+        });
+        if (assigned.count !== crates.length) {
+          throw new Error("Some crates were assigned elsewhere while dispatching. Please try again.");
+        }
+      }
+
+      for (const line of trip.items) {
+        await takeGradeStockForTrip(tx, {
           itemId: line.itemId,
-          warehouseId: item.warehouseId,
+          homeWarehouseId: itemsById.get(line.itemId)?.warehouseId ?? null,
           grade: line.grade,
-          transactionType: "DISPATCH",
-          direction: "DECREASE",
-          quantity: line.quantity,
-          referenceType: "Trip",
-          referenceId: trip.id,
-          referenceNumber: trip.tripNumber,
+          quantity: Number(line.quantity),
+          trip,
           userId: user.id,
         });
       }
@@ -408,7 +573,24 @@ export async function dispatchTripAction(id: string): Promise<ActionResult<{ id:
         where: { id },
         data: { status: "DISPATCHED", departureAt: trip.departureAt ?? new Date() },
       });
+      await tx.vehicle.update({ where: { id: trip.vehicleId }, data: { status: "ON_TRIP" } });
+
+      const soIds = await linkedSalesOrderIds(tx, trip);
+      for (const soId of soIds) await recomputeSalesOrderStatus(tx, soId);
+
+      return { crateCodes: crates.map((c) => c.crateCode), crateIds: crates.map((c) => c.id), salesOrderIds: soIds };
     });
+
+    // Per-crate history lives in AuditLog (no crate-movement table) — see crate-return-actions.ts.
+    for (const crateId of crateIds) {
+      await writeAuditLog({
+        userId: user.id,
+        action: "EDIT",
+        entityType: "Crate",
+        entityId: crateId,
+        newValues: { status: "WITH_CUSTOMER", customerId: trip.customerId, reason: `Dispatched on trip ${trip.tripNumber}` },
+      });
+    }
 
     await writeAuditLog({
       userId: user.id,
@@ -416,11 +598,14 @@ export async function dispatchTripAction(id: string): Promise<ActionResult<{ id:
       entityType: "Trip",
       entityId: id,
       oldValues: { status: "LOADED" },
-      newValues: { status: "DISPATCHED" },
+      newValues: { status: "DISPATCHED", crates: crateCodes },
     });
 
     revalidateTrip(id);
+    revalidateSalesOrders(salesOrderIds);
     revalidatePath("/items");
+    revalidatePath("/crates");
+    revalidatePath("/vehicles");
     return { ok: true, data: { id } };
   } catch (error) {
     return actionError(error);
@@ -452,9 +637,12 @@ export async function markTripDeliveredAction(id: string): Promise<ActionResult<
 export async function markTripReturnedAction(id: string): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("TRIP_EDIT");
-    await requireTripInStatus(id, ["DELIVERED"]);
+    const trip = await requireTripInStatus(id, ["DELIVERED"]);
 
-    await prisma.trip.update({ where: { id }, data: { status: "RETURNED", returnedAt: new Date() } });
+    await prisma.$transaction(async (tx) => {
+      await tx.trip.update({ where: { id }, data: { status: "RETURNED", returnedAt: new Date() } });
+      await releaseVehicleFromTrip(tx, trip.vehicleId, id);
+    });
     await writeAuditLog({
       userId: user.id,
       action: "EDIT",
@@ -465,6 +653,7 @@ export async function markTripReturnedAction(id: string): Promise<ActionResult<{
     });
 
     revalidateTrip(id);
+    revalidatePath("/vehicles");
     return { ok: true, data: { id } };
   } catch (error) {
     return actionError(error);
@@ -475,9 +664,10 @@ export async function cancelTripAction(id: string, input: unknown): Promise<Acti
   try {
     const user = await requirePermission("TRIP_EDIT");
     const data = tripCancelSchema.parse(input);
-    const trip = await prisma.trip.findUnique({ where: { id } });
+    const trip = await prisma.trip.findUnique({ where: { id }, include: { items: true } });
     if (!trip) return { ok: false, error: "Trip not found." };
 
+    // Only pre-dispatch trips can be cancelled, so no stock or crates have moved yet.
     if (!(["CREATED", "APPROVED", "LOADING", "LOADED"] as TripStatus[]).includes(trip.status)) {
       return {
         ok: false,
@@ -486,7 +676,23 @@ export async function cancelTripAction(id: string, input: unknown): Promise<Acti
     }
 
     const combinedRemarks = trip.remarks ? `${trip.remarks}\n\nCancelled: ${data.reason}` : `Cancelled: ${data.reason}`;
-    await prisma.trip.update({ where: { id }, data: { status: "CANCELLED", remarks: combinedRemarks } });
+    const salesOrderIds = await prisma.$transaction(async (tx) => {
+      await tx.trip.update({ where: { id }, data: { status: "CANCELLED", remarks: combinedRemarks } });
+
+      // Release the quantity this trip committed against its sales order lines at creation.
+      for (const line of trip.items) {
+        if (!line.salesOrderItemId) continue;
+        await tx.salesOrderItem.updateMany({
+          where: { id: line.salesOrderItemId },
+          data: { fulfilledQty: { decrement: line.quantity } },
+        });
+      }
+      const soIds = await linkedSalesOrderIds(tx, trip);
+      for (const soId of soIds) await recomputeSalesOrderStatus(tx, soId);
+
+      await releaseVehicleFromTrip(tx, trip.vehicleId, id);
+      return soIds;
+    });
     await writeAuditLog({
       userId: user.id,
       action: "EDIT",
@@ -497,6 +703,7 @@ export async function cancelTripAction(id: string, input: unknown): Promise<Acti
     });
 
     revalidateTrip(id);
+    revalidateSalesOrders(salesOrderIds);
     return { ok: true, data: { id } };
   } catch (error) {
     return actionError(error);

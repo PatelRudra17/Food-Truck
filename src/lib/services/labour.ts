@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Pagination } from "@/lib/validators/common";
 import { paginationMeta } from "@/lib/validators/common";
-import type { Prisma, PersonStatus } from "@prisma/client";
+import { PersonStatus, type Prisma } from "@prisma/client";
 
 export type LabourListFilters = {
   q?: string;
@@ -19,7 +19,7 @@ export async function listLabour(pagination: Pagination, filters: LabourListFilt
       { mobile: { contains: filters.q, mode: "insensitive" } },
     ];
   }
-  if (filters.status) {
+  if (filters.status && (Object.values(PersonStatus) as string[]).includes(filters.status)) {
     where.status = filters.status as PersonStatus;
   }
   if (filters.workType) {
@@ -57,19 +57,11 @@ export async function getLabourById(id: string) {
   });
   if (!labour) return null;
 
-  const [attendances, salaries] = await Promise.all([
-    prisma.attendance.findMany({
-      where: { labourId: id },
-      orderBy: { date: "desc" },
-      take: 30,
-      include: { shift: { select: { shiftName: true } } },
-    }),
-    prisma.salary.findMany({
-      where: { labourId: id },
-      orderBy: { periodStart: "desc" },
-      take: 20,
-    }),
-  ]);
+  const salaries = await prisma.salary.findMany({
+    where: { labourId: id },
+    orderBy: { periodStart: "desc" },
+    take: 20,
+  });
 
-  return { ...labour, attendances, salaries };
+  return { ...labour, salaries };
 }

@@ -6,8 +6,8 @@ import { requirePermission } from "@/lib/auth/guard";
 import { writeAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/validators/common";
-import { actionError } from "@/lib/validators/common";
-import { fuelEntrySchema } from "@/lib/validators/fuel";
+import { actionError, isOneOf } from "@/lib/validators/common";
+import { fuelEntrySchema, FUEL_LINKABLE_TRIP_STATUSES } from "@/lib/validators/fuel";
 import { computeFuelDerivedFields } from "@/lib/services/fuel";
 import { notifyRoleByName } from "@/lib/services/notifications";
 import { validateUpload, uploadObject, getSignedDownloadUrl } from "@/lib/storage";
@@ -28,8 +28,33 @@ export async function createFuelEntryAction(formData: FormData): Promise<ActionR
       if (!driver) throw new Error("Selected driver was not found.");
     }
 
+    // tripId must reference a real trip run by this vehicle (stores Trip.id).
+    if (parsed.tripId) {
+      const trip = await prisma.trip.findUnique({
+        where: { id: parsed.tripId },
+        select: { vehicleId: true, status: true },
+      });
+      if (!trip) throw new Error("Selected trip was not found.");
+      if (trip.vehicleId !== vehicle.id) throw new Error("Selected trip does not belong to this vehicle.");
+      if (!isOneOf(trip.status, FUEL_LINKABLE_TRIP_STATUSES)) {
+        throw new Error("Only dispatched, delivered, or returned trips can be linked to a fuel entry.");
+      }
+    }
+
     const dateTime = new Date(`${parsed.date}T${parsed.time || "00:00"}`);
     if (Number.isNaN(dateTime.getTime())) throw new Error("Invalid date/time.");
+    if (dateTime.getTime() > Date.now()) throw new Error("Fuel entry date/time cannot be in the future.");
+
+    // Readings must continue from the vehicle's recorded odometer. The very
+    // first fill-up for a vehicle is exempt since there's nothing to continue from.
+    const hasPriorEntries = await prisma.fuelEntry.count({
+      where: { vehicleId: vehicle.id, isVoided: false },
+    });
+    if (hasPriorEntries > 0 && new Prisma.Decimal(parsed.previousOdometerKm).lt(vehicle.odometerKm)) {
+      throw new Error(
+        `Previous odometer reading cannot be lower than the vehicle's recorded odometer (${vehicle.odometerKm.toString()} km).`,
+      );
+    }
 
     // Pure calculation lives in src/lib/services/fuel.ts — never reimplement it here.
     const derived = computeFuelDerivedFields({
@@ -162,15 +187,33 @@ export async function voidFuelEntryAction(id: string, reason: string): Promise<A
     if (!existing) throw new Error("Fuel entry not found.");
     if (existing.isVoided) throw new Error("This fuel entry is already voided.");
 
-    await prisma.fuelEntry.update({
-      where: { id },
-      data: {
-        isVoided: true,
-        voidReason: reason.trim(),
-        voidedById: user.id,
-        voidedAt: new Date(),
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.fuelEntry.update({
+        where: { id },
+        data: {
+          isVoided: true,
+          voidReason: reason.trim(),
+          voidedById: user.id,
+          voidedAt: new Date(),
+        },
+      });
+
+      // If this entry is what advanced the vehicle's odometer, roll it back to
+      // the latest remaining reading (or this entry's own starting reading).
+      const vehicle = await tx.vehicle.findUnique({ where: { id: existing.vehicleId } });
+      if (vehicle && vehicle.odometerKm.eq(existing.currentOdometerKm)) {
+        const latest = await tx.fuelEntry.aggregate({
+          where: { vehicleId: existing.vehicleId, isVoided: false },
+          _max: { currentOdometerKm: true },
+        });
+        const restored = latest._max.currentOdometerKm ?? existing.previousOdometerKm;
+        if (!restored.eq(vehicle.odometerKm)) {
+          await tx.vehicle.update({ where: { id: vehicle.id }, data: { odometerKm: restored } });
+        }
+      }
     });
+
+    await recomputeVehicleMaintenanceState(existing.vehicleId);
 
     await writeAuditLog({
       userId: user.id,
@@ -182,6 +225,7 @@ export async function voidFuelEntryAction(id: string, reason: string): Promise<A
     });
 
     revalidatePath("/fuel");
+    revalidatePath("/maintenance");
     return { ok: true, data: { id } };
   } catch (error) {
     return actionError(error);

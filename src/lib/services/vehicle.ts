@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { Pagination } from "@/lib/validators/common";
 import { paginationMeta } from "@/lib/validators/common";
 import { worstExpiryStatus } from "@/lib/expiry";
-import type { Prisma, VehicleStatus } from "@prisma/client";
+import { VehicleStatus, type Prisma } from "@prisma/client";
 
 export type VehicleListFilters = {
   q?: string;
@@ -16,11 +16,12 @@ export async function listVehicles(pagination: Pagination, filters: VehicleListF
   if (filters.q) {
     where.vehicleNumber = { contains: filters.q, mode: "insensitive" };
   }
-  if (filters.status) {
+  // Ignore unknown ?status= values instead of letting Prisma reject them.
+  if (filters.status && Object.values(VehicleStatus).includes(filters.status as VehicleStatus)) {
     where.status = filters.status as VehicleStatus;
   }
   if (filters.vehicleType) {
-    where.vehicleType = filters.vehicleType;
+    where.vehicleType = { equals: filters.vehicleType.trim(), mode: "insensitive" };
   }
 
   const [total, vehicles, vehicleTypes] = await Promise.all([
@@ -59,7 +60,10 @@ export async function listVehicles(pagination: Pagination, filters: VehicleListF
   return {
     rows,
     pagination: paginationMeta(total, pagination),
-    vehicleTypes: vehicleTypes.map((t) => t.vehicleType),
+    // "Truck" and "truck " show once in the filter (matching is case-insensitive).
+    vehicleTypes: [
+      ...new Map(vehicleTypes.map((t) => [t.vehicleType.trim().toLowerCase(), t.vehicleType.trim()])).values(),
+    ],
   };
 }
 

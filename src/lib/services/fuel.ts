@@ -1,6 +1,9 @@
 import { Prisma } from "@prisma/client";
 
 const ANOMALY_DEVIATION_RATIO = 0.3; // flag when mileage deviates >30% from baseline
+// Without a baseline, no road vehicle realistically exceeds this — such a
+// reading almost always means a mistyped odometer or quantity.
+const MAX_PLAUSIBLE_KMPL = 100;
 
 export function computeFuelDerivedFields(params: {
   previousOdometerKm: Prisma.Decimal | number;
@@ -37,6 +40,9 @@ export function computeFuelDerivedFields(params: {
         anomalyNote = `Unusual fuel consumption detected: ${mileageKmpl.toFixed(2)} KM/L vs baseline ${baseline.toFixed(2)} KM/L.`;
       }
     }
+  } else if (mileageKmpl.gt(MAX_PLAUSIBLE_KMPL)) {
+    isAnomaly = true;
+    anomalyNote = `Implausible fuel consumption: ${mileageKmpl.toFixed(2)} KM/L (over ${MAX_PLAUSIBLE_KMPL} KM/L). Check the odometer and quantity.`;
   }
 
   return { distanceKm, totalFuelCost, mileageKmpl, fuelCostPerKm, isAnomaly, anomalyNote };

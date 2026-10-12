@@ -1,5 +1,7 @@
 import { format } from "date-fns";
+import { unstable_rethrow } from "next/navigation";
 import type { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/auth/guard";
 import { writeAuditLog } from "@/lib/audit";
 import { buildExcelBuffer, fileResponseHeaders } from "@/lib/services/export";
@@ -45,7 +47,14 @@ export async function GET(request: NextRequest) {
       ),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Export failed.";
+    unstable_rethrow(error); // let a 403 from requirePermission through
+    // Never leak raw database/validation text from Prisma to the client.
+    const isPrismaError =
+      error instanceof Prisma.PrismaClientKnownRequestError ||
+      error instanceof Prisma.PrismaClientValidationError ||
+      error instanceof Prisma.PrismaClientUnknownRequestError;
+    const message =
+      error instanceof Error && !isPrismaError ? error.message : "Export failed. Check your filters and try again.";
     return new Response(JSON.stringify({ error: message }), {
       status: 400,
       headers: { "Content-Type": "application/json" },

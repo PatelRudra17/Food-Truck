@@ -3,7 +3,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Loader2 } from "lucide-react";
-import { CompleteUnloadingDialog } from "./complete-unloading-dialog";
+import { CompleteUnloadingDialog, type UnloadingBatchInfo } from "./complete-unloading-dialog";
 
 export type InProgressUnloadingRow = {
   id: string;
@@ -14,6 +14,7 @@ export type InProgressUnloadingRow = {
   driverName: string;
   supplierName: string | null;
   unloadingStartAt: Date;
+  batches: UnloadingBatchInfo[];
 };
 
 export function InProgressUnloadingTable({
@@ -68,7 +69,7 @@ export function InProgressUnloadingTable({
               </TableCell>
               {canManage && (
                 <TableCell className="text-right">
-                  <CompleteUnloadingDialog unloadingId={row.id} vehicleNumber={row.vehicleNumber} />
+                  <CompleteUnloadingDialog unloadingId={row.id} vehicleNumber={row.vehicleNumber} batches={row.batches} />
                 </TableCell>
               )}
             </TableRow>

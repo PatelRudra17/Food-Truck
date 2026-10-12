@@ -25,7 +25,7 @@ export default async function RunPayrollPage() {
     <div className="max-w-2xl space-y-6">
       <PageHeader
         title="Run Payroll"
-        description="Create a salary record for one pay period. For labour, suggested earnings are computed from marked attendance and can be adjusted before saving."
+        description="Create a salary record for one pay period."
       />
 
       <PayrollForm

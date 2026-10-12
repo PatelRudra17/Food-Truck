@@ -53,3 +53,69 @@ export function computeMaintenanceState(params: {
   const b = byDate(params.nextServiceDate);
   return RANK[a] >= RANK[b] ? a : b;
 }
+
+type DecimalLike = Prisma.Decimal | number;
+
+export type ServiceScheduleVehicle = {
+  odometerKm: DecimalLike;
+  serviceIntervalDays: number | null;
+  serviceIntervalKm: DecimalLike | null;
+  nextServiceDate: Date | null;
+  nextServiceKm: DecimalLike | null;
+};
+
+export type ServiceScheduleRecord = {
+  serviceDate: Date;
+  odometerKm: DecimalLike;
+};
+
+/**
+ * Re-derives a vehicle's lastService / nextService / maintenanceState from its
+ * latest remaining (non-archived) maintenance record. Used after a record is
+ * archived so the vehicle no longer reflects the archived service.
+ *
+ * Mirrors createMaintenanceAction: a record only drives nextService* when the
+ * vehicle has the matching service interval; otherwise the vehicle's current
+ * (manually scheduled) value is kept, since no record ever changed it. When no
+ * records remain, the interval-derived next value has no baseline and is
+ * cleared — the schedule can be set again from the vehicle form.
+ */
+export function deriveServiceSchedule(
+  vehicle: ServiceScheduleVehicle,
+  latest: ServiceScheduleRecord | null,
+): {
+  lastServiceDate: Date | null;
+  lastServiceKm: Prisma.Decimal | null;
+  nextServiceDate: Date | null;
+  nextServiceKm: Prisma.Decimal | null;
+  maintenanceState: MaintenanceState;
+} {
+  const keptNextKm = vehicle.nextServiceKm == null ? null : new Prisma.Decimal(vehicle.nextServiceKm);
+
+  let nextServiceDate: Date | null;
+  let nextServiceKm: Prisma.Decimal | null;
+  if (vehicle.serviceIntervalDays) {
+    nextServiceDate = latest
+      ? new Date(latest.serviceDate.getTime() + vehicle.serviceIntervalDays * 24 * 60 * 60 * 1000)
+      : null;
+  } else {
+    nextServiceDate = vehicle.nextServiceDate;
+  }
+  if (vehicle.serviceIntervalKm != null && !new Prisma.Decimal(vehicle.serviceIntervalKm).isZero()) {
+    nextServiceKm = latest ? new Prisma.Decimal(latest.odometerKm).plus(vehicle.serviceIntervalKm) : null;
+  } else {
+    nextServiceKm = keptNextKm;
+  }
+
+  return {
+    lastServiceDate: latest?.serviceDate ?? null,
+    lastServiceKm: latest ? new Prisma.Decimal(latest.odometerKm) : null,
+    nextServiceDate,
+    nextServiceKm,
+    maintenanceState: computeMaintenanceState({
+      currentKm: vehicle.odometerKm,
+      nextServiceKm,
+      nextServiceDate,
+    }),
+  };
+}

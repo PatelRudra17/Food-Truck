@@ -75,6 +75,7 @@ export default async function SettingsPage() {
           documentExpiryWarningDays: valueOf(map, SETTING_KEYS.DOCUMENT_EXPIRY_WARNING_DAYS, [7, 15, 30]),
           highWastageThresholdPercent: valueOf(map, SETTING_KEYS.HIGH_WASTAGE_THRESHOLD_PERCENT, 15),
           crateOverdueThresholdDays: valueOf(map, SETTING_KEYS.CRATE_OVERDUE_THRESHOLD_DAYS, 14),
+          requireSeparateApprover: valueOf<unknown>(map, SETTING_KEYS.REQUIRE_SEPARATE_APPROVER, false) === true,
         }}
         companyLogoStorageKey={valueOf<string | null>(map, SETTING_KEYS.COMPANY_LOGO_STORAGE_KEY, null)}
       />

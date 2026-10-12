@@ -12,7 +12,7 @@ export type PayrollListFilters = {
 
 export async function listPayroll(pagination: Pagination, filters: PayrollListFilters) {
   const where: Prisma.SalaryWhereInput = {};
-  if (filters.paymentStatus) {
+  if (filters.paymentStatus === "PENDING" || filters.paymentStatus === "PAID") {
     where.paymentStatus = filters.paymentStatus as PaymentStatus;
   }
   if (filters.personType === "EMPLOYEE") {
@@ -52,28 +52,4 @@ export async function getSalaryById(id: string) {
       labour: { select: { id: true, name: true, labourCode: true, workType: true, dailyWage: true } },
     },
   });
-}
-
-/**
- * Suggested (not enforced) earnings for a Labour pay period:
- * dailyWage x presentDays, where PRESENT counts as 1 day and HALF_DAY as 0.5.
- * The caller (Run Payroll form) shows this as an editable starting default.
- */
-export async function computeSuggestedLabourEarnings(labourId: string, periodStart: Date, periodEnd: Date) {
-  const labour = await prisma.labour.findUnique({ where: { id: labourId } });
-  if (!labour) return null;
-
-  const attendances = await prisma.attendance.findMany({
-    where: { labourId, date: { gte: periodStart, lte: periodEnd } },
-    select: { status: true },
-  });
-
-  const presentDays = attendances.reduce((sum, a) => {
-    if (a.status === "PRESENT") return sum + 1;
-    if (a.status === "HALF_DAY") return sum + 0.5;
-    return sum;
-  }, 0);
-
-  const dailyWage = Number(labour.dailyWage);
-  return { presentDays, dailyWage, earnings: presentDays * dailyWage };
 }

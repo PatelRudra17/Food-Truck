@@ -24,6 +24,7 @@ import { FUEL_TYPES } from "@/lib/validators/fuel";
 
 type VehicleOption = { id: string; vehicleNumber: string; odometerKm: number; fuelType: string | null };
 type DriverOption = { id: string; fullName: string };
+type TripOption = { id: string; tripNumber: string; vehicleId: string; status: string };
 
 const formSchema = z.object({
   vehicleId: z.string().min(1, "Vehicle is required."),
@@ -46,9 +47,11 @@ type FormInput = z.input<typeof formSchema>;
 export function FuelForm({
   vehicleOptions,
   driverOptions,
+  tripOptions,
 }: {
   vehicleOptions: VehicleOption[];
   driverOptions: DriverOption[];
+  tripOptions: TripOption[];
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -86,9 +89,13 @@ export function FuelForm({
   const estimatedDistance = Math.max(0, currentOdometerKm - previousOdometerKm);
   const estimatedCost = fuelQuantity * fuelRate;
   const estimatedMileage = fuelQuantity > 0 && estimatedDistance > 0 ? estimatedDistance / fuelQuantity : null;
+  const selectedVehicleId = watch("vehicleId");
+  const vehicleTrips = tripOptions.filter((t) => t.vehicleId === selectedVehicleId);
 
   function handleVehicleChange(vehicleId: string) {
     setValue("vehicleId", vehicleId);
+    // A trip belongs to one vehicle, so a previously chosen trip no longer applies.
+    setValue("tripId", "");
     const vehicle = vehicleOptions.find((v) => v.id === vehicleId);
     if (vehicle) {
       // Default-suggest the vehicle's current odometer reading; the user may override it.
@@ -141,7 +148,7 @@ export function FuelForm({
                     <SelectContent>
                       {vehicleOptions.map((v) => (
                         <SelectItem key={v.id} value={v.id}>
-                          {v.vehicleNumber} ({v.odometerKm.toLocaleString()} km)
+                          {v.vehicleNumber} ({v.odometerKm.toLocaleString("en-IN")} km)
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -186,8 +193,33 @@ export function FuelForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="tripId">Trip ID (optional)</Label>
-              <Input id="tripId" {...register("tripId")} />
+              <Label htmlFor="fuel-trip">Trip (optional)</Label>
+              <Controller
+                control={control}
+                name="tripId"
+                render={({ field }) => (
+                  <Select
+                    value={field.value || "none"}
+                    onValueChange={(v) => field.onChange(v === "none" ? "" : v)}
+                    disabled={!selectedVehicleId}
+                  >
+                    <SelectTrigger id="fuel-trip" className="w-full">
+                      <SelectValue placeholder={selectedVehicleId ? "No trip" : "Select a vehicle first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No trip</SelectItem>
+                      {vehicleTrips.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.tripNumber} ({t.status.charAt(0) + t.status.slice(1).toLowerCase()})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {selectedVehicleId && vehicleTrips.length === 0 && (
+                <p className="text-xs text-muted-foreground">No recent dispatched trips for this vehicle.</p>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -264,11 +296,11 @@ export function FuelForm({
           <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/40 p-3 text-sm">
             <div>
               <p className="text-muted-foreground">Distance</p>
-              <p className="font-medium tabular-nums">{estimatedDistance.toLocaleString()} km</p>
+              <p className="font-medium tabular-nums">{estimatedDistance.toLocaleString("en-IN")} km</p>
             </div>
             <div>
               <p className="text-muted-foreground">Total cost</p>
-              <p className="font-medium tabular-nums">₹{estimatedCost.toLocaleString()}</p>
+              <p className="font-medium tabular-nums">₹{estimatedCost.toLocaleString("en-IN")}</p>
             </div>
             <div>
               <p className="text-muted-foreground">Mileage</p>

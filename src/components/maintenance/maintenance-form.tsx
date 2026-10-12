@@ -134,7 +134,7 @@ export function MaintenanceForm({ vehicleOptions }: { vehicleOptions: VehicleOpt
                     <SelectContent>
                       {vehicleOptions.map((v) => (
                         <SelectItem key={v.id} value={v.id}>
-                          {v.vehicleNumber} ({v.odometerKm.toLocaleString()} km)
+                          {v.vehicleNumber} ({v.odometerKm.toLocaleString("en-IN")} km)
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -237,7 +237,7 @@ export function MaintenanceForm({ vehicleOptions }: { vehicleOptions: VehicleOpt
 
           <div className="flex items-center justify-between rounded-md border bg-muted/40 p-3 text-sm">
             <p className="text-muted-foreground">Total cost</p>
-            <p className="font-medium tabular-nums">₹{estimatedTotal.toLocaleString()}</p>
+            <p className="font-medium tabular-nums">₹{estimatedTotal.toLocaleString("en-IN")}</p>
           </div>
 
           <div className="flex justify-end gap-2">

@@ -72,20 +72,23 @@ export default async function NewTripPage() {
         drivers={drivers}
         staff={staff}
         items={items.map((i) => ({ id: i.id, name: i.name, sku: i.sku, unit: i.unit, hasWarehouse: !!i.warehouseId }))}
-        salesOrders={salesOrders.map((so) => ({
-          id: so.id,
-          soNumber: so.soNumber,
-          customerId: so.customerId,
-          items: so.items
-            .map((line) => ({
-              salesOrderItemId: line.id,
-              itemId: line.itemId,
-              itemName: line.item.name,
-              grade: line.grade,
-              remainingQty: Math.max(0, Number(line.quantity) - Number(line.fulfilledQty)),
-            }))
-            .filter((line) => line.remainingQty > 0),
-        }))}
+        salesOrders={salesOrders
+          .map((so) => ({
+            id: so.id,
+            soNumber: so.soNumber,
+            customerId: so.customerId,
+            items: so.items
+              .map((line) => ({
+                salesOrderItemId: line.id,
+                itemId: line.itemId,
+                itemName: line.item.name,
+                grade: line.grade,
+                remainingQty: Math.max(0, Number(line.quantity) - Number(line.fulfilledQty)),
+              }))
+              .filter((line) => line.remainingQty > 0),
+          }))
+          // Orders whose every line is already committed to trips have nothing left to dispatch.
+          .filter((so) => so.items.length > 0)}
         canOverride={canOverride}
       />
     </div>

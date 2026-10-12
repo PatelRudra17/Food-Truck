@@ -33,13 +33,31 @@ export type TempSettingsItem = {
   shelfLifeDays: number | null;
 };
 
-const formSchema = z.object({
-  isTemperatureSensitive: z.boolean().default(true),
-  storageMinTempC: z.string().default(""),
-  storageMaxTempC: z.string().default(""),
-  storageType: z.string().default(""),
-  shelfLifeDays: z.string().default(""),
-});
+const blankOrNumber = (message: string) =>
+  z
+    .string()
+    .trim()
+    .default("")
+    .refine((v) => v === "" || Number.isFinite(Number(v)), message);
+
+const formSchema = z
+  .object({
+    isTemperatureSensitive: z.boolean().default(true),
+    storageMinTempC: blankOrNumber("Enter a valid temperature."),
+    storageMaxTempC: blankOrNumber("Enter a valid temperature."),
+    storageType: z.string().default(""),
+    shelfLifeDays: blankOrNumber("Enter a valid number of days.").refine(
+      (v) => v === "" || (Number.isInteger(Number(v)) && Number(v) >= 0),
+      "Shelf life must be a whole number of days, 0 or more.",
+    ),
+  })
+  .refine(
+    (d) =>
+      d.storageMinTempC === "" ||
+      d.storageMaxTempC === "" ||
+      Number(d.storageMinTempC) <= Number(d.storageMaxTempC),
+    { message: "Minimum temperature must not exceed the maximum.", path: ["storageMaxTempC"] },
+  );
 
 type FormValues = z.infer<typeof formSchema>;
 type FormInput = z.input<typeof formSchema>;
@@ -126,10 +144,16 @@ export function TemperatureSettingsDialog({ trigger, item }: { trigger: ReactNod
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="temp-min">Min temp (°C)</Label>
                 <Input id="temp-min" type="number" step="0.1" {...register("storageMinTempC")} />
+                {errors.storageMinTempC && (
+                  <p className="text-sm text-destructive">{errors.storageMinTempC.message}</p>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="temp-max">Max temp (°C)</Label>
                 <Input id="temp-max" type="number" step="0.1" {...register("storageMaxTempC")} />
+                {errors.storageMaxTempC && (
+                  <p className="text-sm text-destructive">{errors.storageMaxTempC.message}</p>
+                )}
               </div>
             </div>
 
@@ -159,6 +183,7 @@ export function TemperatureSettingsDialog({ trigger, item }: { trigger: ReactNod
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="temp-shelf">Shelf life (days)</Label>
               <Input id="temp-shelf" type="number" step="1" min="0" {...register("shelfLifeDays")} />
+              {errors.shelfLifeDays && <p className="text-sm text-destructive">{errors.shelfLifeDays.message}</p>}
             </div>
           </div>
 

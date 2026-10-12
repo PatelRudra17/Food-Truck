@@ -48,6 +48,14 @@ export default async function GatePage({
     getRecentGateActivity(filter),
   ]);
 
+  // Archived vehicles and vehicles/drivers already inside can't be recorded in.
+  const insideDriverIds = new Set(insideEntries.map((r) => r.driverId));
+  const insideVehicleIds = new Set(insideEntries.map((r) => r.vehicleId));
+  const recordInVehicles = vehicles.filter(
+    (v) => v.status !== "INACTIVE" && v.status !== "INSIDE" && !insideVehicleIds.has(v.id),
+  );
+  const recordInDrivers = drivers.filter((d) => !insideDriverIds.has(d.id));
+
   const insideRows = insideEntries.map((r) => ({
     id: r.id,
     gateEntryNumber: r.gateEntryNumber,
@@ -69,12 +77,12 @@ export default async function GatePage({
         actions={
           canCreate ? (
             <RecordInDialog
-              vehicles={vehicles.map((v) => ({
+              vehicles={recordInVehicles.map((v) => ({
                 id: v.id,
                 label: v.vehicleNumber,
                 sublabel: v.vehicleType,
               }))}
-              drivers={drivers.map((d) => ({ id: d.id, label: `${d.fullName} (${d.mobile})` }))}
+              drivers={recordInDrivers.map((d) => ({ id: d.id, label: `${d.fullName} (${d.mobile})` }))}
               suppliers={suppliers.map((s) => ({ id: s.id, label: s.companyName }))}
             />
           ) : undefined

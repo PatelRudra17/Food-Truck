@@ -10,11 +10,13 @@ export function AdjustmentActions({
   status,
   canApprove,
   differenceLabel,
+  targetLabel,
 }: {
   id: string;
   status: string;
   canApprove: boolean;
   differenceLabel: string;
+  targetLabel: string;
 }) {
   const router = useRouter();
 
@@ -25,7 +27,7 @@ export function AdjustmentActions({
       <ConfirmDialog
         trigger={<Button>Approve</Button>}
         title="Approve this stock adjustment?"
-        description={`This will change item stock by ${differenceLabel}. This action affects live inventory and cannot be undone.`}
+        description={`This will set item stock to the counted ${targetLabel} (currently a change of ${differenceLabel}; recalculated against live stock at approval). This action affects live inventory and cannot be undone.`}
         confirmLabel="Approve & Apply"
         onConfirm={() => approveAdjustmentAction(id)}
         onSuccess={() => router.refresh()}

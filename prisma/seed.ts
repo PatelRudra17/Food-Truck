@@ -21,18 +21,17 @@ import {
 } from "../src/lib/auth/permissions";
 
 /**
- * NOTE on `writeAuditLog` (`src/lib/audit.ts`) and `computeSuggestedLabourEarnings`
- * (`src/lib/services/payroll.ts`): both modules start with `import "server-only"`,
+ * NOTE on `writeAuditLog` (`src/lib/audit.ts`): the module starts with `import "server-only"`,
  * a marker package whose default export unconditionally THROWS
  * ("This module cannot be imported from a Client Component module...").
  * That throw is only suppressed by Next's bundler (which resolves the
  * package's `react-server` export condition instead of `default`); this seed
  * script runs via plain `tsx prisma/seed.ts` (see package.json `db:seed`),
- * which has no such condition, so importing either module crashes immediately
+ * which has no such condition, so importing the module crashes immediately
  * at `import` time — verified by direct experiment before writing this file.
- * Per the task's approach-(b) fallback, both are reproduced locally below
- * (`seedAuditLog`, `computeSuggestedLabourEarningsLocal`) with byte-for-byte
- * identical DB effects to what calling the real functions would have done in
+ * Per the task's approach-(b) fallback, it is reproduced locally below
+ * (`seedAuditLog`) with byte-for-byte
+ * identical DB effects to what calling the real function would have done in
  * this same non-request script context (writeAuditLog's own headers() call is
  * already wrapped in a try/catch specifically for "outside a request scope
  * (e.g. seed script)", so it would have written ipAddress/userAgent as
@@ -63,26 +62,6 @@ async function seedAuditLog(params: {
       newValues: params.newValues === undefined ? undefined : (params.newValues as object),
     },
   });
-}
-
-/** Mirrors `computeSuggestedLabourEarnings` in src/lib/services/payroll.ts (see note above). */
-async function computeSuggestedLabourEarningsLocal(labourId: string, periodStart: Date, periodEnd: Date) {
-  const labour = await prisma.labour.findUnique({ where: { id: labourId } });
-  if (!labour) return null;
-
-  const attendances = await prisma.attendance.findMany({
-    where: { labourId, date: { gte: periodStart, lte: periodEnd } },
-    select: { status: true },
-  });
-
-  const presentDays = attendances.reduce((sum, a) => {
-    if (a.status === "PRESENT") return sum + 1;
-    if (a.status === "HALF_DAY") return sum + 0.5;
-    return sum;
-  }, 0);
-
-  const dailyWage = Number(labour.dailyWage);
-  return { presentDays, dailyWage, earnings: presentDays * dailyWage };
 }
 
 const prisma = new PrismaClient();
@@ -837,7 +816,7 @@ async function seedEmployeesAndLabour(shifts: Awaited<ReturnType<typeof seedShif
 // KISHAN CORPORATION TRANSACTIONAL DEMO DATA
 //
 // Procurement -> Unloading -> Sorting/Grading -> Sales Orders -> Trips ->
-// Crate Returns -> Attendance -> Payroll -> Cleaning -> Next-Day Prep.
+// Crate Returns -> Payroll -> Next-Day Prep.
 //
 // Every module below already ships a real server action in
 // src/lib/actions/*, but each one calls requirePermission(...) as its first
@@ -853,8 +832,7 @@ async function seedEmployeesAndLabour(shifts: Awaited<ReturnType<typeof seedShif
 // exists and is safely importable here: `nextDocumentNumber`,
 // `applyGradeStockMovement`, `applyStockMovement` (transitively, inside
 // applyGradeStockMovement), and `checkTripEligibility`. See the top-of-file
-// note for why `writeAuditLog` and `computeSuggestedLabourEarnings` are
-// reproduced locally (`seedAuditLog` / `computeSuggestedLabourEarningsLocal`)
+// note for why `writeAuditLog` is reproduced locally (`seedAuditLog`)
 // instead of imported.
 // ==================================================
 
@@ -1714,79 +1692,9 @@ async function seedCrateReturn(
 }
 
 /**
- * Attendance (src/lib/actions/attendance-actions.ts): marks every seeded
- * Employee/Labour for the last 6 days, upserting on the same
- * (date, employeeId)/(date, labourId) unique keys the real action upserts
- * on, so re-running the seed script never violates those constraints.
- */
-async function seedAttendance(
-  employees: { id: string; shiftId: string | null }[],
-  labourers: { id: string; shiftId: string | null }[],
-  hrPayrollId: string,
-) {
-  console.log("Seeding attendance for the last 6 days...");
-
-  const DAYS = 6;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  for (let d = 0; d < DAYS; d++) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - d);
-
-    for (const emp of employees) {
-      const roll = faker.number.float({ min: 0, max: 1 });
-      const status = roll < 0.85 ? "PRESENT" : roll < 0.93 ? "HALF_DAY" : "ABSENT";
-      const where = { date_employeeId: { date, employeeId: emp.id } };
-      const existing = await prisma.attendance.findUnique({ where });
-      const record = await prisma.attendance.upsert({
-        where,
-        create: {
-          date,
-          employeeId: emp.id,
-          shiftId: emp.shiftId,
-          status,
-          overtimeHours: status === "PRESENT" ? faker.number.int({ min: 0, max: 2 }) : 0,
-        },
-        update: { status },
-      });
-      await seedAuditLog({
-        userId: hrPayrollId,
-        action: existing ? "EDIT" : "CREATE",
-        entityType: "Attendance",
-        entityId: record.id,
-        newValues: { date, status },
-      });
-    }
-
-    for (const lab of labourers) {
-      const roll = faker.number.float({ min: 0, max: 1 });
-      const status = roll < 0.8 ? "PRESENT" : roll < 0.9 ? "HALF_DAY" : "ABSENT";
-      const where = { date_labourId: { date, labourId: lab.id } };
-      const existing = await prisma.attendance.findUnique({ where });
-      const record = await prisma.attendance.upsert({
-        where,
-        create: { date, labourId: lab.id, shiftId: lab.shiftId, status, overtimeHours: 0 },
-        update: { status },
-      });
-      await seedAuditLog({
-        userId: hrPayrollId,
-        action: existing ? "EDIT" : "CREATE",
-        entityType: "Attendance",
-        entityId: record.id,
-        newValues: { date, status },
-      });
-    }
-  }
-}
-
-/**
- * Payroll (src/lib/actions/payroll-actions.ts): runs one past period (the
- * same 6-day window just attended) for two Labour records — using the real
- * suggested-earnings formula (see computeSuggestedLabourEarningsLocal note
- * at the top of the file) — and two Employee records (no suggested formula
- * exists for employees in the real module either; a flat figure is entered
- * exactly like a user would type into the Run Payroll form).
+ * Payroll (src/lib/actions/payroll-actions.ts): runs one past 6-day period
+ * for two Labour records and two Employee records, each with a flat figure
+ * entered exactly like a user would type into the Run Payroll form.
  */
 async function seedPayroll(
   employees: { id: string }[],
@@ -1801,9 +1709,7 @@ async function seedPayroll(
   periodStart.setDate(periodStart.getDate() - 5);
 
   for (const lab of labourers.slice(0, 2)) {
-    const suggestion = await computeSuggestedLabourEarningsLocal(lab.id, periodStart, periodEnd);
-    if (!suggestion) continue;
-    const earnings = suggestion.earnings;
+    const earnings = 2400;
     const netSalary = earnings;
     const created = await prisma.salary.create({
       data: {
@@ -1866,56 +1772,6 @@ async function seedPayroll(
         newValues: { paymentStatus: "PAID" },
       });
     }
-  }
-}
-
-/**
- * Cleaning (src/lib/actions/cleaning-actions.ts): one VEHICLE record for the
- * trip vehicle after its return, and one CRATE record for a crate that just
- * came back from the crate return above (if any were seeded).
- */
-async function seedCleaning(vehicleId: string, crateId: string | undefined, storeManagerId: string) {
-  console.log("Seeding cleaning records...");
-
-  const vehicleCleaning = await prisma.cleaning.create({
-    data: {
-      entityType: "VEHICLE",
-      vehicleId,
-      cleaningType: "Post-trip wash",
-      startTime: new Date(Date.now() - 60 * 60 * 1000),
-      endTime: new Date(),
-      staffId: storeManagerId,
-      status: "COMPLETED",
-      remarks: "Seed data: post-delivery vehicle wash",
-    },
-  });
-  await seedAuditLog({
-    userId: storeManagerId,
-    action: "CREATE",
-    entityType: "Cleaning",
-    entityId: vehicleCleaning.id,
-    newValues: { entityType: "VEHICLE", vehicleId },
-  });
-
-  if (crateId) {
-    const crateCleaning = await prisma.cleaning.create({
-      data: {
-        entityType: "CRATE",
-        crateId,
-        cleaningType: "Wash and sanitize",
-        startTime: new Date(),
-        staffId: storeManagerId,
-        status: "IN_PROGRESS",
-        remarks: "Seed data: crate cleaning after return",
-      },
-    });
-    await seedAuditLog({
-      userId: storeManagerId,
-      action: "CREATE",
-      entityType: "Cleaning",
-      entityId: crateCleaning.id,
-      newValues: { entityType: "CRATE", crateId },
-    });
   }
 }
 
@@ -2037,7 +1893,7 @@ async function main() {
   await seedSorting(batches, users["Store Manager"].id);
 
   const { so1, tomatoId, potatoId } = await seedSalesOrders(customers, items, users["Store Manager"].id);
-  const { trip1Id, tripVehicleId } = await seedTrips(
+  const { trip1Id } = await seedTrips(
     users["Store Manager"].id,
     customers,
     vehicles,
@@ -2047,14 +1903,12 @@ async function main() {
     tomatoId,
     potatoId,
   );
-  const { returnedCrateIds } = await seedCrateReturn(trip1Id, customers[0].id, crates, users["Store Manager"].id);
+  await seedCrateReturn(trip1Id, customers[0].id, crates, users["Store Manager"].id);
 
   const employees = await prisma.employee.findMany({ select: { id: true, shiftId: true } });
   const labourers = await prisma.labour.findMany({ select: { id: true, shiftId: true } });
-  await seedAttendance(employees, labourers, users["HR / Payroll"].id);
   await seedPayroll(employees, labourers, users["HR / Payroll"].id);
 
-  await seedCleaning(tripVehicleId, returnedCrateIds[0], users["Store Manager"].id);
   await seedNextDayPreparation(users["Store Manager"].id);
 
   console.log("\nSeed complete.");

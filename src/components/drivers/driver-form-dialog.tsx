@@ -113,6 +113,7 @@ export function DriverFormDialog({
           <div className="space-y-1">
             <Label htmlFor="altMobile">Alt Mobile</Label>
             <Input id="altMobile" {...register("altMobile")} />
+            {errors.altMobile && <p className="text-xs text-destructive">{errors.altMobile.message}</p>}
           </div>
 
           <div className="space-y-1">

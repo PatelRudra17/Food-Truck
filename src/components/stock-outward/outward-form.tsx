@@ -34,7 +34,14 @@ import {
 import { createOutwardAction, updateOutwardAction } from "@/lib/actions/stock-outward-actions";
 
 type WarehouseOption = { id: string; name: string };
-type ItemOption = { id: string; sku: string; name: string; unit: string; currentStock: number };
+type ItemOption = {
+  id: string;
+  sku: string;
+  name: string;
+  unit: string;
+  /** Stock on hand per warehouse id; availability is the selected warehouse's balance. */
+  stockByWarehouse: Record<string, number>;
+};
 type VehicleOption = { id: string; vehicleNumber: string };
 type DriverOption = { id: string; fullName: string };
 
@@ -98,6 +105,7 @@ export function OutwardForm({
 
   const { fields, append, remove } = useFieldArray({ control, name: "items" });
   const watchedItems = watch("items");
+  const selectedWarehouseId = watch("warehouseId");
 
   function handleItemChange(index: number, itemId: string) {
     setValue(`items.${index}.itemId`, itemId);
@@ -269,8 +277,8 @@ export function OutwardForm({
                   const line = watchedItems?.[index];
                   const selectedItem = line?.itemId ? itemMap.get(line.itemId) : undefined;
                   const requestedQty = Number(line?.requestedQty ?? 0);
-                  const exceeds =
-                    selectedItem != null && requestedQty > selectedItem.currentStock;
+                  const available = selectedItem ? (selectedItem.stockByWarehouse[selectedWarehouseId] ?? 0) : 0;
+                  const exceeds = selectedItem != null && requestedQty > available;
 
                   return (
                     <TableRow key={field.id}>
@@ -293,7 +301,7 @@ export function OutwardForm({
                         <FieldError errors={[errors.items?.[index]?.itemId]} />
                       </TableCell>
                       <TableCell className="tabular-nums text-muted-foreground">
-                        {selectedItem ? selectedItem.currentStock.toLocaleString() : "—"}
+                        {selectedItem && selectedWarehouseId ? available.toLocaleString() : "—"}
                       </TableCell>
                       <TableCell>
                         <Input

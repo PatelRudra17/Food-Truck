@@ -14,7 +14,7 @@ const PREFIXES = {
   PROCUREMENT_BATCH: "BAT",
   SALES_ORDER: "SO",
   TRIP: "TRIP",
-  CRATE_RETURN: "CRT",
+  CRATE_RETURN: "CRR",
   WASTAGE: "WST",
 } as const;
 

@@ -1,8 +1,11 @@
-import { PackageCheck, Truck, Users, RotateCcw, AlertTriangle, HelpCircle } from "lucide-react";
+import { PackageCheck, Truck, Users, RotateCcw, AlertTriangle, HelpCircle, Sparkles, CheckCircle2 } from "lucide-react";
 import { KpiCard } from "@/components/shared/kpi-card";
 
 export type CrateStatusCounts = Partial<
-  Record<"AVAILABLE" | "LOADED" | "WITH_CUSTOMER" | "RETURNED" | "DAMAGED" | "MISSING", number>
+  Record<
+    "AVAILABLE" | "LOADED" | "WITH_CUSTOMER" | "RETURNED" | "DAMAGED" | "MISSING" | "CLEANING" | "READY",
+    number
+  >
 >;
 
 export function CrateKpiRow({ counts }: { counts: CrateStatusCounts }) {
@@ -11,12 +14,14 @@ export function CrateKpiRow({ counts }: { counts: CrateStatusCounts }) {
     { key: "LOADED", label: "Loaded", icon: Truck, tone: "default" as const },
     { key: "WITH_CUSTOMER", label: "With Customer", icon: Users, tone: "default" as const },
     { key: "RETURNED", label: "Returned", icon: RotateCcw, tone: "default" as const },
+    { key: "CLEANING", label: "Cleaning", icon: Sparkles, tone: "warning" as const },
+    { key: "READY", label: "Ready", icon: CheckCircle2, tone: "default" as const },
     { key: "DAMAGED", label: "Damaged", icon: AlertTriangle, tone: "danger" as const },
     { key: "MISSING", label: "Missing", icon: HelpCircle, tone: "danger" as const },
   ];
 
   return (
-    <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
       {items.map((item) => (
         <KpiCard
           key={item.key}

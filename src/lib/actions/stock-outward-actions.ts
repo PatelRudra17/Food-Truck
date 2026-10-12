@@ -6,7 +6,9 @@ import { requirePermission } from "@/lib/auth/guard";
 import { writeAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { nextDocumentNumber } from "@/lib/numbering";
-import { applyStockMovement, isNegativeStockAllowed } from "@/lib/services/inventory";
+import { applyStockMovement } from "@/lib/services/inventory";
+import { assertOutwardQtyAvailable } from "@/lib/services/stock-reservation";
+import { assertSeparateApprover } from "@/lib/services/approval-policy";
 import { notifyRoleByName } from "@/lib/services/notifications";
 import { validateUpload, uploadObject, getSignedDownloadUrl } from "@/lib/storage";
 import type { ActionResult } from "@/lib/validators/common";
@@ -19,25 +21,37 @@ const TERMINAL_STATUSES: OutwardStatus[] = [
   OutwardStatus.REJECTED,
 ];
 
+/**
+ * Loads the requested items with `currentStock` set to their balance in the given
+ * warehouse — an outward can only issue stock held where it is issued from.
+ */
+async function loadItemsWithWarehouseStock(tx: Prisma.TransactionClient, itemIds: string[], warehouseId: string) {
+  const items = await tx.item.findMany({
+    where: { id: { in: itemIds } },
+    include: { warehouseStocks: { where: { warehouseId }, select: { quantity: true } } },
+  });
+  return new Map(
+    items.map(({ warehouseStocks, ...item }) => [
+      item.id,
+      { ...item, currentStock: new Prisma.Decimal(warehouseStocks[0]?.quantity ?? 0) },
+    ]),
+  );
+}
+
 export async function createOutwardAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requirePermission("STOCK_OUTWARD_CREATE");
     const data = createOutwardSchema.parse(input);
 
     const created = await prisma.$transaction(async (tx) => {
-      const allowNegative = await isNegativeStockAllowed(tx);
-      const items = await tx.item.findMany({ where: { id: { in: data.items.map((i) => i.itemId) } } });
-      const itemMap = new Map(items.map((i) => [i.id, i]));
-
-      for (const line of data.items) {
-        const item = itemMap.get(line.itemId);
-        if (!item) throw new Error("One of the selected items no longer exists.");
-        const available = Number(item.currentStock);
-        if (line.requestedQty > available && !allowNegative) {
-          throw new Error(
-            `Requested quantity for "${item.name}" (${line.requestedQty}) exceeds available stock (${available}).`,
-          );
-        }
+      // Free stock = warehouse balance minus what other pending/approved outwards already claim.
+      await assertOutwardQtyAvailable(tx, {
+        warehouseId: data.warehouseId,
+        lines: data.items.map((line) => ({ itemId: line.itemId, quantity: line.requestedQty })),
+      });
+      const itemMap = await loadItemsWithWarehouseStock(tx, data.items.map((i) => i.itemId), data.warehouseId);
+      if (data.items.some((line) => !itemMap.has(line.itemId))) {
+        throw new Error("One of the selected items no longer exists.");
       }
 
       const outwardNumber = await nextDocumentNumber(tx, "STOCK_OUTWARD");
@@ -98,19 +112,15 @@ export async function updateOutwardAction(
         throw new Error("Only draft outward requests can be edited.");
       }
 
-      const allowNegative = await isNegativeStockAllowed(tx);
-      const items = await tx.item.findMany({ where: { id: { in: data.items.map((i) => i.itemId) } } });
-      const itemMap = new Map(items.map((i) => [i.id, i]));
-
-      for (const line of data.items) {
-        const item = itemMap.get(line.itemId);
-        if (!item) throw new Error("One of the selected items no longer exists.");
-        const available = Number(item.currentStock);
-        if (line.requestedQty > available && !allowNegative) {
-          throw new Error(
-            `Requested quantity for "${item.name}" (${line.requestedQty}) exceeds available stock (${available}).`,
-          );
-        }
+      // Free stock = warehouse balance minus what other pending/approved outwards already claim.
+      await assertOutwardQtyAvailable(tx, {
+        warehouseId: data.warehouseId,
+        lines: data.items.map((line) => ({ itemId: line.itemId, quantity: line.requestedQty })),
+        excludeOutwardId: id,
+      });
+      const itemMap = await loadItemsWithWarehouseStock(tx, data.items.map((i) => i.itemId), data.warehouseId);
+      if (data.items.some((line) => !itemMap.has(line.itemId))) {
+        throw new Error("One of the selected items no longer exists.");
       }
 
       await tx.stockOutwardItem.deleteMany({ where: { outwardId: id } });
@@ -161,10 +171,16 @@ export async function submitOutwardForApprovalAction(id: string): Promise<Action
     const user = await requirePermission("STOCK_OUTWARD_EDIT");
 
     const outward = await prisma.$transaction(async (tx) => {
-      const existing = await tx.stockOutward.findUniqueOrThrow({ where: { id } });
+      const existing = await tx.stockOutward.findUniqueOrThrow({ where: { id }, include: { items: true } });
       if (existing.status !== OutwardStatus.DRAFT) {
         throw new Error("Only draft outward requests can be submitted for approval.");
       }
+      // Submitting turns the draft into a claim on stock, so it must still fit what is free.
+      await assertOutwardQtyAvailable(tx, {
+        warehouseId: existing.warehouseId,
+        lines: existing.items.map((line) => ({ itemId: line.itemId, quantity: line.requestedQty })),
+        excludeOutwardId: id,
+      });
       const updated = await tx.stockOutward.update({
         where: { id },
         data: { status: OutwardStatus.PENDING_APPROVAL },
@@ -207,13 +223,20 @@ export async function approveOutwardAction(id: string, comment?: string): Promis
     const user = await requirePermission("STOCK_OUTWARD_APPROVE");
 
     await prisma.$transaction(async (tx) => {
-      const existing = await tx.stockOutward.findUniqueOrThrow({ where: { id } });
+      const existing = await tx.stockOutward.findUniqueOrThrow({ where: { id }, include: { items: true } });
       if (existing.status !== OutwardStatus.PENDING_APPROVAL) {
         throw new Error("Only outward requests pending approval can be approved.");
       }
       const approval = await tx.approval.findFirst({
         where: { outwardFk: id, decision: ApprovalDecision.PENDING },
         orderBy: { requestedAt: "desc" },
+      });
+      await assertSeparateApprover(tx, user.id, [existing.requestedById, approval?.requestedById]);
+      // Other approved/pending outwards may have claimed the stock since this one was requested.
+      await assertOutwardQtyAvailable(tx, {
+        warehouseId: existing.warehouseId,
+        lines: existing.items.map((line) => ({ itemId: line.itemId, quantity: line.requestedQty })),
+        excludeOutwardId: id,
       });
       if (approval) {
         await tx.approval.update({

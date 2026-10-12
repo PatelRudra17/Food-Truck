@@ -21,16 +21,26 @@ export function ItemCodes({
   canEdit: boolean;
 }) {
   const router = useRouter();
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  // The rendered QR image is remembered with the payload it was made from, so a stale or
+  // missing payload simply derives "no image" during render instead of resetting state in an effect.
+  const [qrImage, setQrImage] = useState<{ payload: string; dataUrl: string | null } | null>(null);
+  const qrDataUrl = qrCodePayload && qrImage?.payload === qrCodePayload ? qrImage.dataUrl : null;
   const barcodeRef = useRef<SVGSVGElement>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    if (qrCodePayload) {
-      QRCode.toDataURL(qrCodePayload, { width: 160, margin: 1 }).then(setQrDataUrl).catch(() => setQrDataUrl(null));
-    } else {
-      setQrDataUrl(null);
-    }
+    if (!qrCodePayload) return;
+    let cancelled = false;
+    QRCode.toDataURL(qrCodePayload, { width: 160, margin: 1 })
+      .then((dataUrl) => {
+        if (!cancelled) setQrImage({ payload: qrCodePayload, dataUrl });
+      })
+      .catch(() => {
+        if (!cancelled) setQrImage({ payload: qrCodePayload, dataUrl: null });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [qrCodePayload]);
 
   useEffect(() => {

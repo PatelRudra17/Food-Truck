@@ -16,7 +16,11 @@ export function SidebarNav({
   const pathname = usePathname();
   const groups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !item.permission || permissions.includes(item.permission)),
+    items: group.items.filter((item) => {
+      if (!item.permission) return true;
+      const required = typeof item.permission === "string" ? [item.permission] : item.permission;
+      return required.some((p) => permissions.includes(p));
+    }),
   })).filter((group) => group.items.length > 0);
 
   return (

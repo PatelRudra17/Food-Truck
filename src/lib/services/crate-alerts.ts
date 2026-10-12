@@ -40,7 +40,8 @@ export async function checkOverdueCratesAndNotify(): Promise<void> {
 
   for (const crate of overdueCrates) {
     const existing = await prisma.notification.findFirst({
-      where: { type: "CRATE_OVERDUE", entityType: "Crate", entityId: crate.id, isRead: false },
+      // One alert per stay with the customer (read state is per user now, so it can't be the dedupe key).
+      where: { type: "CRATE_OVERDUE", entityType: "Crate", entityId: crate.id, createdAt: { gte: crate.updatedAt } },
       select: { id: true },
     });
     if (existing) continue;

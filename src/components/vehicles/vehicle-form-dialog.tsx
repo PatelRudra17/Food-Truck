@@ -41,7 +41,7 @@ export function VehicleFormDialog({
   mode: "create" | "edit";
   vehicleId?: string;
   drivers: DriverOption[];
-  defaultValues?: Partial<VehicleInput>;
+  defaultValues?: Partial<VehicleFormInput>;
   trigger: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -94,7 +94,8 @@ export function VehicleFormDialog({
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "New Vehicle" : "Edit Vehicle"}</DialogTitle>
           <DialogDescription>
-            Core vehicle master details. Fuel and maintenance tracking fields are managed elsewhere.
+            Core vehicle master details, plus the fuel-efficiency target and service schedule used for
+            fuel anomaly detection and maintenance reminders.
           </DialogDescription>
         </DialogHeader>
 
@@ -200,6 +201,45 @@ export function VehicleFormDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="fuelEfficiencyTargetKmpl">Fuel Efficiency Target (KM/L)</Label>
+            <Input
+              id="fuelEfficiencyTargetKmpl"
+              type="number"
+              step="0.01"
+              min="0"
+              {...register("fuelEfficiencyTargetKmpl")}
+            />
+            {errors.fuelEfficiencyTargetKmpl && (
+              <p className="text-xs text-destructive">{errors.fuelEfficiencyTargetKmpl.message}</p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="serviceIntervalDays">Service Interval (days)</Label>
+            <Input id="serviceIntervalDays" type="number" step="1" min="1" {...register("serviceIntervalDays")} />
+            {errors.serviceIntervalDays && (
+              <p className="text-xs text-destructive">{errors.serviceIntervalDays.message}</p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="serviceIntervalKm">Service Interval (KM)</Label>
+            <Input id="serviceIntervalKm" type="number" step="0.1" min="0" {...register("serviceIntervalKm")} />
+            {errors.serviceIntervalKm && <p className="text-xs text-destructive">{errors.serviceIntervalKm.message}</p>}
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="nextServiceDate">Next Service Date</Label>
+            <Input id="nextServiceDate" type="date" {...register("nextServiceDate")} />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="nextServiceKm">Next Service at (KM)</Label>
+            <Input id="nextServiceKm" type="number" step="0.1" min="0" {...register("nextServiceKm")} />
+            {errors.nextServiceKm && <p className="text-xs text-destructive">{errors.nextServiceKm.message}</p>}
           </div>
 
           <div className="space-y-1 sm:col-span-2">
